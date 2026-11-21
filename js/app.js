@@ -55,7 +55,7 @@
     try {
       showLoading(true);
       const fecha = (window.APP_CONFIG.DEFAULT_DATE === "today" || !window.APP_CONFIG.DEFAULT_DATE) ? todayISO() : window.APP_CONFIG.DEFAULT_DATE;
-      const res = await API.getRouteToday({ pin: state.session.pin, fecha, conductor: state.session.usuario.conductorHoja || state.session.usuario.nombre, idUsuario: state.session.usuario.id });
+      const res = await API.getRouteToday({ pin: state.session.pin, fecha });
       if (!res || !res.ok) throw new Error(res && res.error || "No se pudo cargar la ruta.");
       state.route = res.ruta || null;
       state.entregas = Array.isArray(res.entregas) ? res.entregas : [];
@@ -77,7 +77,7 @@
     const r = state.route;
     qs("#route-conductor").textContent = r ? (r.conductor || state.session.usuario.nombre || "-") : (state.session.usuario.nombre || "-");
     qs("#route-fecha").textContent = r ? (r.fecha || todayISO()) : todayISO();
-    qs("#route-hoja").textContent = r ? `${r.hoja || ""} (${r.idRuta || ""})` : "No se encontró ruta asignada para hoy.";
+    qs("#route-hoja").textContent = r ? `${r.hoja || ""} (${r.idRuta || ""})` : "No tienes una ruta asignada para hoy. Si crees que es un error, contacta a oficina.";
     qs("#subtitle").textContent = r ? `Ruta del día` : "Sin ruta";
 
     const total = state.entregas.length;

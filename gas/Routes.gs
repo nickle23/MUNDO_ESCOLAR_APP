@@ -5,13 +5,17 @@
 function getRouteToday(params) {
   var user = requireAuth_(params);
   var fecha = toDateStr(params.fecha) || todayStr();
-  var conductor = String(params.conductor || user.conductorHoja || user.nombre || '').trim();
-  var idUsuario = String(params.idUsuario || user.id || '').trim();
+  // Seguridad: usar siempre la identidad del usuario autenticado (ignorar conductor/idUsuario enviados por cliente)
+  var conductor = String(user.conductorHoja || user.nombre || '').trim();
+  var idUsuario = String(user.id || '').trim();
 
   var routeInfo = findRouteInfo_(fecha, conductor, idUsuario);
   if (!routeInfo) {
-    return { ok: false, error: 'No se encontró ruta asignada para ' + fecha + ' (' + conductor + '). Registra la ruta en INDICE_RUTAS o ejecuta indexarRutas().' };
+    return { ok: false, error: 'No tienes una ruta asignada para ' + fecha + '. Si crees que es un error, verifica INDICE_RUTAS (fecha, conductor/usuario y estado ABIERTA).' };
   }
+
+  // Verificación adicional: la ruta debe pertenecer al usuario autenticado
+  assertRouteAssignedToUser_(routeInfo, user);
 
   var ss = SpreadsheetApp.openById(routeInfo.spreadsheetId);
   var sh = ss.getSheetByName(routeInfo.hoja);
@@ -128,18 +132,44 @@ function findRouteInfo_(fecha, conductor, idUsuario) {
       };
     }
   }
-  // fallback: if only one route that day
-  if (!best) {
-    var sameDay = [];
-    for (var j = 0; j < data.length; j++) {
-      if (toDateStr(data[j][1]) === targetFecha && normalizeName(data[j][7]) !== 'ANULADA') sameDay.push(data[j]);
-    }
-    if (sameDay.length === 1) {
-      var rr = sameDay[0];
-      best = { idRuta: rr[0], fecha: targetFecha, conductor: String(rr[2]||''), idUsuario: String(rr[3]||''), spreadsheetId: String(rr[4]||''), spreadsheetUrl: String(rr[5]||''), hoja: String(rr[6]||''), estado: String(rr[7]||'') };
+  return best;
+}
+
+function assertRouteAssignedToUser_(routeInfo, user) {
+  if (!routeInfo) throw new Error('Ruta no encontrada.');
+  var userId = String(user.id || '').trim();
+  var routeUser = String(routeInfo.idUsuario || '').trim();
+  var userConductor = normalizeName(user.conductorHoja || user.nombre || '');
+  var routeConductor = normalizeName(routeInfo.conductor || '');
+  var userMatch = userId && routeUser && userId === routeUser;
+  var conductorMatch = userConductor && routeConductor && userConductor === routeConductor;
+
+  // Si INDICE_RUTAS tiene ID_USUARIO, exigimos coincidencia exacta por ID.
+  if (routeUser) {
+    if (!userMatch) throw new Error('No autorizado: esta ruta no está asignada a tu usuario.');
+    return;
+  }
+  // Si no hay ID_USUARIO en el índice, validamos por conductor.
+  if (!conductorMatch) throw new Error('No autorizado: esta ruta no está asignada a tu usuario.');
+}
+
+function getRouteInfoById_(idRuta) {
+  var master = getMaster_();
+  var sh = getSheet_(master, 'INDICE_RUTAS');
+  var last = sh.getLastRow();
+  if (last < 2) return null;
+  var data = sh.getRange(2, 1, last - 1, 11).getValues();
+  var target = String(idRuta || '').trim();
+  for (var i = 0; i < data.length; i++) {
+    var r = data[i];
+    if (String(r[0] || '').trim() === target) {
+      return {
+        idRuta: r[0], fecha: toDateStr(r[1]), conductor: String(r[2]||''), idUsuario: String(r[3]||'').trim(),
+        spreadsheetId: String(r[4]||''), spreadsheetUrl: String(r[5]||''), hoja: String(r[6]||''), estado: String(r[7]||'')
+      };
     }
   }
-  return best;
+  return null;
 }
 
 function routeCols_(hmap) {
@@ -182,12 +212,19 @@ function saveEntrega(payload) {
   var user = requireAuth_(payload);
   var ruta = payload.ruta || {};
   var entIn = payload.entrega || {};
-  if (!ruta.spreadsheetId || !ruta.hoja) throw new Error('Datos de ruta incompletos.');
+  if (!ruta.idRuta) throw new Error('Datos de ruta incompletos (falta idRuta).');
+
+  // Seguridad: nunca confiar en spreadsheetId/hoja enviados por cliente.
+  var routeInfo = getRouteInfoById_(ruta.idRuta);
+  if (!routeInfo) throw new Error('Ruta no encontrada en INDICE_RUTAS.');
+  assertRouteAssignedToUser_(routeInfo, user);
+  if (normalizeName(routeInfo.estado) === 'ANULADA') throw new Error('Esta ruta está anulada y no permite modificaciones.');
+
   var idEntrega = String(entIn.idEntrega || '').trim();
   var rowNum = Number(entIn.row || 0);
 
-  var ss = SpreadsheetApp.openById(ruta.spreadsheetId);
-  var sh = ss.getSheetByName(ruta.hoja);
+  var ss = SpreadsheetApp.openById(routeInfo.spreadsheetId);
+  var sh = ss.getSheetByName(routeInfo.hoja);
   if (!sh) throw new Error('No se encontró la hoja de ruta.');
   var hmap = headerMap_(sh, 3);
   var c = routeCols_(hmap);
@@ -249,7 +286,7 @@ function saveEntrega(payload) {
   try {
     if (totalCobroSel > 0 && idCliente) {
       detalleCobro = aplicarAbonosDeuda_(idCliente, clienteNombre, cobros, { efectivo: cobroEf, yape: cobroYa, transferencia: cobroTr }, {
-        idRuta: ruta.idRuta, idEntrega: currentIdEntrega, usuario: user.nombre || user.id
+        idRuta: routeInfo.idRuta, idEntrega: currentIdEntrega, usuario: user.nombre || user.id
       });
     }
 
@@ -257,8 +294,8 @@ function saveEntrega(payload) {
     var idDeudaGenerada = String(sh.getRange(targetRow, c.ID_DEUDA_GENERADA).getValue() || '').trim();
     if (generaDeuda && idCliente) {
       idDeudaGenerada = crearOActualizarDeudaEntrega_(idDeudaGenerada, {
-        idCliente: idCliente, clienteNombre: clienteNombre, fechaOrigen: toDateStr(ruta.fecha) || todayStr(),
-        idRutaOrigen: String(ruta.idRuta || ''), idEntregaOrigen: currentIdEntrega,
+        idCliente: idCliente, clienteNombre: clienteNombre, fechaOrigen: toDateStr(routeInfo.fecha) || todayStr(),
+        idRutaOrigen: String(routeInfo.idRuta || ''), idEntregaOrigen: currentIdEntrega,
         monto: montoDeudaNueva, vencimiento: vencimientoNuevo, creadoPor: user.nombre || user.id,
         observacion: String(payload.observacion || '')
       });
@@ -272,7 +309,7 @@ function saveEntrega(payload) {
     if (totalPagadoHoy > 0 || generaDeuda) {
       registrarMovimiento_({
         tipo: 'PAGO_ENTREGA', idCliente: idCliente, clienteNombre: clienteNombre,
-        idRuta: String(ruta.idRuta || ''), idEntrega: currentIdEntrega, idDeuda: idDeudaGenerada,
+        idRuta: String(routeInfo.idRuta || ''), idEntrega: currentIdEntrega, idDeuda: idDeudaGenerada,
         montoAplicado: totalPagadoHoy, efectivo: efectivo, yape: yape, transferencia: transferencia,
         resultado: saldoEntrega <= 0.009 ? 'PAGO_COMPLETO' : 'PAGO_PARCIAL_GENERA_DEUDA',
         vencimientoNuevo: vencimientoNuevo, usuario: user.nombre || user.id, observacion: String(payload.observacion || '')
@@ -322,7 +359,7 @@ function saveEntrega(payload) {
   sh.getRange(targetRow, c.OBSERVACION).setValue(obs);
 
   // update index timestamp
-  try { touchIndiceRuta_(ruta.idRuta); } catch(e) {}
+  try { touchIndiceRuta_(routeInfo.idRuta); } catch(e) {}
 
   return {
     ok: true,
