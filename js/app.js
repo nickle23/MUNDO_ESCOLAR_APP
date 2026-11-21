@@ -162,8 +162,8 @@
     qs("#cobro-deuda-card").classList.remove("hidden");
     qs("#cobro-title").textContent = isDebtMode ? "Abonar deuda" : "Cobro de deudas anteriores";
     qs("#cobro-subtitle").textContent = isDebtMode
-      ? "Selecciona la deuda, ingresa el monto a abonar (parcial o total), elige el método y registra."
-      : "Selecciona deudas y el monto a abonar. El abono se registra con el desglose indicado.";
+      ? "Ingresa el pago y la app lo reparte automáticamente a las deudas más antiguas. Puedes ajustar un monto manualmente."
+      : "Ingresa el pago (Efectivo/Yape/Transferencia). Se reparte automáticamente a las deudas más antiguas; puedes ajustar montos manualmente.";
     qs("#btn-save").textContent = isDebtMode ? "Registrar cobro de deuda" : (locked ? "Ruta finalizada" : "Guardar y sincronizar");
     qs("#btn-save").disabled = isDebtMode ? !canDebt : locked;
     qs("#cobro-no-deudas").classList.add("hidden");
@@ -316,6 +316,38 @@
 
   function roundMoney(v){ return Math.round((num(v) + Number.EPSILON) * 100) / 100; }
 
+  function autoAllocateDebts() {
+    const inputs = qsa(".cd-monto");
+    if (!inputs.length) return;
+    const total = roundMoney(num(qs("#cd-efectivo").value) + num(qs("#cd-yape").value) + num(qs("#cd-transferencia").value));
+    // Respetar montos manuales; repartir el resto en orden (más antiguo primero)
+    let manualSum = 0;
+    const autoInputs = [];
+    inputs.forEach(inp => {
+      const max = num(inp.getAttribute("data-max"));
+      if (inp.dataset.manual === "1") {
+        let v = roundMoney(num(inp.value));
+        if (v > max) v = max;
+        if (v < 0) v = 0;
+        inp.value = v > 0 ? v.toFixed(2) : "";
+        const ch = qs(`.cd-sel[data-id="${inp.getAttribute("data-id")}"]`);
+        if (ch) ch.checked = v > 0;
+        manualSum = roundMoney(manualSum + v);
+      } else {
+        autoInputs.push(inp);
+      }
+    });
+    let remaining = Math.max(0, roundMoney(total - manualSum));
+    autoInputs.forEach(inp => {
+      const max = num(inp.getAttribute("data-max"));
+      const v = roundMoney(Math.min(max, remaining));
+      inp.value = v > 0 ? v.toFixed(2) : "";
+      const ch = qs(`.cd-sel[data-id="${inp.getAttribute("data-id")}"]`);
+      if (ch) ch.checked = v > 0;
+      remaining = roundMoney(remaining - v);
+    });
+  }
+
   function renderDebts(data) {
     const items = (data && data.items || []).filter(d => Number(d.saldoPendiente || 0) > 0);
     const isDebtMode = state.returnTo === "deudores";
@@ -371,6 +403,7 @@
       const id = e.target.getAttribute("data-id");
       const inp = qs(`.cd-monto[data-id="${id}"]`);
       if (!inp) return;
+      inp.dataset.manual = "1";
       if (e.target.checked && !inp.value) inp.value = inp.getAttribute("data-max") || "";
       if (!e.target.checked) inp.value = "";
       updateCalcs();
@@ -382,6 +415,7 @@
       let v = num(e.target.value);
       if (v > max) { v = max; e.target.value = max; }
       if (ch) ch.checked = v > 0;
+      e.target.dataset.manual = "1"; // edición manual: se respeta en el autorreparto
       updateCalcs();
     }));
     updateCalcs();
@@ -406,14 +440,14 @@
 
     const recibido = num(qs("#p-recibido") && qs("#p-recibido").value);
     const vueltoWrap = qs("#calc-vuelto-wrap");
-    const vueltoEl = qs("#calc-vuelto");
-    if (vueltoWrap && vueltoEl) {
-      const showVuelto = recibido > 0;
-      const vuelto = recibido > 0 ? roundMoney(recibido - monto) : 0;
+    if (vueltoWrap) {
+      const cambioPorSobrepago = Math.max(0, roundMoney(total - monto));
+      const showVuelto = recibido > 0 || cambioPorSobrepago > 0;
+      const base = recibido > 0 ? recibido : total;
+      const vuelto = roundMoney(base - monto);
       vueltoWrap.classList.toggle("hidden", !showVuelto);
       if (vuelto >= 0) {
         vueltoWrap.className = "text-success";
-        vueltoEl.textContent = money(vuelto);
         vueltoWrap.innerHTML = `Cambio a devolver: <strong id="calc-vuelto">${money(vuelto)}</strong>`;
       } else {
         vueltoWrap.className = "text-danger";
@@ -424,18 +458,22 @@
     qs("#credito-fields").classList.toggle("hidden", !(qs("#genera-deuda").checked && saldo > 0));
     if (saldo <= 0) qs("#genera-deuda").checked = false;
 
-    // Deudas: calcular por monto ingresado (aunque no se marque checkbox), marcar auto si hay monto
+    const cdEf = num(qs("#cd-efectivo").value);
+    const cdYa = num(qs("#cd-yape").value);
+    const cdTr = num(qs("#cd-transferencia").value);
+    const cobro = roundMoney(cdEf + cdYa + cdTr);
+
+    // Autorreparto: el pago se distribuye a deudas más antiguas; montos manuales se respetan
+    autoAllocateDebts();
+
+    const cdMontoInputs = qsa(".cd-monto");
     let selTotal = 0;
-    qsa(".cd-monto").forEach(inp => {
+    cdMontoInputs.forEach(inp => {
       const id = inp.getAttribute("data-id");
       const max = num(inp.getAttribute("data-max"));
-      let v = roundMoney(num(inp.value));
-      if (v > max) { v = max; inp.value = max.toFixed(2); }
-      if (v < 0) { v = 0; inp.value = ""; }
-      const ch = qs(`.cd-sel[data-id="${id}"]`);
-      if (ch) ch.checked = v > 0;
-      const restante = Math.max(0, roundMoney(max - v));
+      const v = roundMoney(num(inp.value));
       selTotal = roundMoney(selTotal + v);
+      const restante = Math.max(0, roundMoney(max - v));
       const abonandoEl = qs(`#cd-abonando-${id}`);
       const restanteEl = qs(`#cd-restante-${id}`);
       const badgeEl = qs(`#cd-badge-${id}`);
@@ -444,10 +482,7 @@
       if (badgeEl) badgeEl.textContent = `Saldo: ${money(restante)}`;
     });
 
-    const cdEf = num(qs("#cd-efectivo").value);
-    const cdYa = num(qs("#cd-yape").value);
-    const cdTr = num(qs("#cd-transferencia").value);
-    const cobro = roundMoney(cdEf + cdYa + cdTr);
+    const refAbono = selTotal > 0 ? selTotal : cobro; // base para cambio cuando falta asignar monto en deuda
     const faltaCuadrar = Math.max(0, roundMoney(selTotal - cobro));
     const exceso = Math.max(0, roundMoney(cobro - selTotal));
     const selEl = qs("#calc-deuda-seleccionado");
@@ -455,15 +490,23 @@
     qs("#calc-cobro-deuda").textContent = money(cobro);
     const faltaEl = qs("#calc-deuda-falta");
     if (faltaEl) {
-      faltaEl.textContent = money(faltaCuadrar);
-      faltaEl.className = (faltaCuadrar > 0 || exceso > 0) ? "text-danger" : "text-success";
+      if (selTotal > 0 && exceso > 0) {
+        faltaEl.textContent = `Exceso: ${money(exceso)}`;
+        faltaEl.className = "text-danger";
+      } else {
+        faltaEl.textContent = money(faltaCuadrar);
+        faltaEl.className = faltaCuadrar > 0 ? "text-danger" : "text-success";
+      }
     }
 
     const cdRecibido = num(qs("#cd-recibido") && qs("#cd-recibido").value);
     const cdVueltoWrap = qs("#calc-deuda-vuelto-wrap");
     if (cdVueltoWrap) {
-      const show = cdRecibido > 0;
-      const vuelto = cdRecibido > 0 ? roundMoney(cdRecibido - selTotal) : 0;
+      const baseAbono = selTotal > 0 ? selTotal : cobro;
+      const cambioPorSobrepago = selTotal > 0 ? Math.max(0, roundMoney(cobro - selTotal)) : 0;
+      const show = cdRecibido > 0 || cambioPorSobrepago > 0;
+      const base = cdRecibido > 0 ? cdRecibido : cobro;
+      const vuelto = roundMoney(base - baseAbono);
       cdVueltoWrap.classList.toggle("hidden", !show);
       if (vuelto >= 0) {
         cdVueltoWrap.className = "text-success";
