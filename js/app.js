@@ -501,7 +501,26 @@
     qs("#btn-save").addEventListener("click", saveCurrent);
 
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
+      const reloadOnce = () => {
+        if (window.__meSwReloaded) return;
+        window.__meSwReloaded = true;
+        window.location.reload();
+      };
+      navigator.serviceWorker.register("sw.js").then((reg) => {
+        try { reg.update(); } catch (e) {}
+        setInterval(() => { try { reg.update(); } catch (e) {} }, 60 * 1000);
+        if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+        reg.addEventListener("updatefound", () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener("statechange", () => {
+            if (nw.state === "installed" && navigator.serviceWorker.controller) {
+              nw.postMessage({ type: "SKIP_WAITING" });
+            }
+          });
+        });
+      }).catch(() => {});
+      navigator.serviceWorker.addEventListener("controllerchange", reloadOnce);
     }
   }
 

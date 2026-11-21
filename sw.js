@@ -1,7 +1,7 @@
-// Service worker básico para PWA (cache ligero de la app shell)
-// Nota: las llamadas al API no se cachean para evitar datos desactualizados.
+// Service worker PWA - auto-actualización para repartidores (sin borrar datos manualmente)
+// Las llamadas al API no se cachean.
 
-const CACHE = "me-rutas-v7";
+const CACHE = "me-rutas-v9";
 const ASSETS = [
   "./",
   "./index.html",
@@ -19,23 +19,50 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+    await self.clients.claim();
+  })());
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  // No cachear API (script.google.com u otros orígenes)
   if (url.origin !== self.location.origin) return;
-  event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req).then((res) => {
-      const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+
+  // Network-first para navegación y archivos de la app: trae la versión nueva cuando hay internet
+  const isAppShell = req.mode === "navigate" ||
+    ASSETS.some((a) => url.pathname.endsWith(a.replace("./", "/")) || url.pathname === "/" || url.pathname.endsWith("/index.html"));
+
+  if (isAppShell) {
+    event.respondWith((async () => {
+      try {
+        const fresh = await fetch(req, { cache: "no-store" });
+        const copy = fresh.clone();
+        const cache = await caches.open(CACHE);
+        await cache.put(req, copy);
+        return fresh;
+      } catch (e) {
+        const cached = await caches.match(req);
+        return cached || caches.match("./index.html");
+      }
+    })());
+    return;
+  }
+
+  // Otros assets same-origin: cache-first con actualización en segundo plano
+  event.respondWith((async () => {
+    const cached = await caches.match(req);
+    const fetchPromise = fetch(req).then(async (res) => {
+      try { const cache = await caches.open(CACHE); await cache.put(req, res.clone()); } catch (e) {}
       return res;
-    }).catch(() => cached))
-  );
+    }).catch(() => null);
+    return cached || fetchPromise || Response.error();
+  })());
 });

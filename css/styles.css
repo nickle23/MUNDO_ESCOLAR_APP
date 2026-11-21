@@ -48,27 +48,28 @@ textarea { resize: vertical; }
 .card .btn-light, .item .btn-light, .empty .btn-light { background: var(--light); color: var(--text); border: 1px solid var(--border); }
 .btn-block { width: 100%; padding: 13px 14px; margin-top: 10px; }
 
-.detail-head { display:flex; align-items:center; gap:10px; margin-bottom: 4px; }
+.detail-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 8px; }
 .btn-back {
-  flex: 0 0 auto;
-  background: var(--light);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid #cfe0f5;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1;
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-back:active { background: #e2e8f0; }
+.btn-back:active { background: #edf4ff; }
 .detail-title {
   margin: 0;
   font-size: 20px;
-  line-height: 1.25;
+  line-height: 1.3;
   font-weight: 700;
-  min-width: 0;
+  width: 100%;
   overflow-wrap: anywhere;
 }
 
