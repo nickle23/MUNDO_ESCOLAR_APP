@@ -48,6 +48,30 @@ textarea { resize: vertical; }
 .card .btn-light, .item .btn-light, .empty .btn-light { background: var(--light); color: var(--text); border: 1px solid var(--border); }
 .btn-block { width: 100%; padding: 13px 14px; margin-top: 10px; }
 
+.detail-head { display:flex; align-items:center; gap:10px; margin-bottom: 4px; }
+.btn-back {
+  flex: 0 0 auto;
+  background: var(--light);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-back:active { background: #e2e8f0; }
+.detail-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.25;
+  font-weight: 700;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .route-header { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .route-header .full { grid-column: 1 / -1; }
 .label { font-size: 12px; color: var(--muted); }

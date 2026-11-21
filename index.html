@@ -64,11 +64,11 @@
 
     <section id="view-deudores" class="view hidden">
       <div class="card">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <button id="btn-back-deudores" class="btn btn-light" style="padding:6px 10px;font-size:13px;">&larr; Volver</button>
-          <h2 style="margin:0;font-size:20px;">Clientes deudores</h2>
+        <div class="detail-head">
+          <button id="btn-back-deudores" class="btn-back">&larr; Volver</button>
+          <h2 class="detail-title">Clientes deudores</h2>
         </div>
-        <p class="muted small">Aquí puedes consultar deudas pendientes. Solo podrás cobrar si el administrador te autorizó.</p>
+        <p class="muted small" style="margin-top:8px;">Consulta deudas pendientes. Solo podrás registrar cobros si el administrador te autorizó.</p>
         <div id="deudores-status" class="msg"></div>
       </div>
       <div class="toolbar">
@@ -80,9 +80,9 @@
 
     <section id="view-detail" class="view hidden">
       <div class="card">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <button id="btn-back" class="btn btn-light" style="padding:6px 10px;font-size:13px;">&larr; Volver</button>
-          <h2 id="detail-cliente" style="margin:0;font-size:20px;"></h2>
+        <div class="detail-head">
+          <button id="btn-back" class="btn-back">&larr; Volver</button>
+          <h2 id="detail-cliente" class="detail-title"></h2>
         </div>
         <div id="detail-meta" class="meta"></div>
         <div class="grid2 mt">

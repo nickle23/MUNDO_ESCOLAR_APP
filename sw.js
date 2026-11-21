@@ -1,7 +1,7 @@
 // Service worker básico para PWA (cache ligero de la app shell)
 // Nota: las llamadas al API no se cachean para evitar datos desactualizados.
 
-const CACHE = "me-rutas-v6";
+const CACHE = "me-rutas-v7";
 const ASSETS = [
   "./",
   "./index.html",
