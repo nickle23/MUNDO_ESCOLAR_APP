@@ -17,9 +17,9 @@ function setupMaster() {
     ['MASTER_ID', ss.getId(), 'ID del spreadsheet maestro'],
   ]);
 
-  ensureSheetWithHeaders_(ss, 'USUARIOS', ['ID_USUARIO', 'NOMBRE', 'CONDUCTOR_HOJA', 'PIN', 'ACTIVO', 'ROL', 'NOTAS'], [
-    ['USR001', 'JONATAN', 'JONATAN', '1234', 'SI', 'REPARTIDOR', 'Ejemplo - cambiar PIN'],
-    ['USR002', 'NIXON', 'NIXON', '2345', 'SI', 'REPARTIDOR', 'Ejemplo - cambiar PIN'],
+  ensureSheetWithHeaders_(ss, 'USUARIOS', ['ID_USUARIO', 'NOMBRE', 'CONDUCTOR_HOJA', 'PIN', 'ACTIVO', 'ROL', 'NOTAS', 'PUEDE_COBRAR_DEUDAS'], [
+    ['USR001', 'JONATAN', 'JONATAN', '1234', 'SI', 'REPARTIDOR', 'Ejemplo - cambiar PIN', 'NO'],
+    ['USR002', 'NIXON', 'NIXON', '2345', 'SI', 'REPARTIDOR', 'Ejemplo - cambiar PIN', 'NO'],
   ]);
 
   ensureSheetWithHeaders_(ss, 'CLIENTES', ['ID_CLIENTE', 'NOMBRE', 'DIRECCION', 'ZONA', 'TELEFONO', 'ACTIVO', 'SALDO_PENDIENTE', 'FECHA_ALTA', 'NOTAS'], []);
@@ -36,22 +36,31 @@ function setupMaster() {
 function ensureSheetWithHeaders_(ss, name, headers, seedRows) {
   var sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
-  // Ensure headers in row 1
-  var range = sh.getRange(1, 1, 1, headers.length);
-  var existing = range.getValues()[0];
-  var empty = existing.every(function (v) { return v === '' || v === null; });
-  if (empty || sh.getLastRow() === 0) {
-    range.setValues([headers]);
-    sh.setFrozenRows(1);
+  var lastCol = Math.max(sh.getLastColumn(), headers.length, 1);
+  var existing = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var hasAny = existing.some(function (v) { return v !== '' && v !== null; });
+  if (!hasAny) {
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
   } else {
-    // Update header labels if first row looks like headers but differs (light touch)
-    // Only set if completely blank cells in header span
+    // Append missing headers at the end (no borra datos existentes)
+    var map = {};
+    for (var i = 0; i < existing.length; i++) {
+      var n = normalizeName(existing[i]);
+      if (n) map[n] = true;
+    }
+    var col = existing.length;
+    headers.forEach(function (h) {
+      if (!map[normalizeName(h)]) {
+        col++;
+        sh.getRange(1, col).setValue(h);
+      }
+    });
   }
-  // Seed rows if sheet only has header
+  sh.setFrozenRows(1);
   if (seedRows && seedRows.length && sh.getLastRow() <= 1) {
     seedRows.forEach(function (r) { sh.appendRow(r); });
   }
-  try { sh.autoResizeColumns(1, Math.min(headers.length, 12)); } catch (e) {}
+  try { sh.autoResizeColumns(1, Math.min(sh.getLastColumn(), 12)); } catch (e) {}
   return sh;
 }
 

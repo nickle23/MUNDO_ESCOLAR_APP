@@ -20,7 +20,7 @@ Guía para poner en marcha la app con **Google Sheets + Google Apps Script + Git
 6. Ejecuta la función **`setupMaster()`** desde el editor de Apps Script (autoriza permisos cuando lo solicite). Esto creará/estructurará las hojas:
    - `CONFIG`, `USUARIOS`, `CLIENTES`, `INDICE_RUTAS`, `DEUDAS`, `MOVIMIENTOS` con sus encabezados.
 7. Completa datos iniciales en el Maestro:
-   - `USUARIOS`: registra repartidores con `ID_USUARIO`, `NOMBRE`, `CONDUCTOR_HOJA` (tal como aparece en B2 de la ruta, ej. `JONATAN`), `PIN`, `ACTIVO=SI`, `ROL=REPARTIDOR`.
+   - `USUARIOS`: registra repartidores con `ID_USUARIO`, `NOMBRE`, `CONDUCTOR_HOJA` (tal como aparece en B2 de la ruta, ej. `JONATAN`), `PIN`, `ACTIVO=SI`, `ROL=REPARTIDOR`, `PUEDE_COBRAR_DEUDAS=NO` (cámbialo a `SI` solo cuando autorices).
    - `CLIENTES`: registra clientes y asigna `ID_CLIENTE` único a cada uno.
    - `CONFIG`: define `RUTAS_FOLDER_ID` (ID de la carpeta de Drive donde estarán los archivos de rutas), `TIMEZONE` = `America/Lima`.
 
@@ -81,14 +81,16 @@ La app busca en `INDICE_RUTAS` por fecha y conductor y carga solo esa ruta.
 ## 5. Flujo de uso
 
 1. **Repartidor** inicia sesión con su PIN/código.
-2. La app consulta `INDICE_RUTAS` y carga la **ruta del día** del conductor.
+2. La app consulta `INDICE_RUTAS` y carga la **ruta del día** del conductor (solo si está asignada a él).
 3. Por cada entrega, el repartidor registra:
    - Pago de hoy: montos en **Efectivo/Yape/Transferencia** (mixtos).
    - Si falta dinero: **genera deuda** indicando **monto** y **fecha de vencimiento personalizada**.
-   - Si el cliente tiene deudas previas: muestra pendientes y permite **cobrar/abonar** (con desglose).
+   - Si el cliente tiene deudas previas: muestra pendientes y permite **cobrar/abonar** (con desglose) **solo si `PUEDE_COBRAR_DEUDAS=SI`**.
    - **Observaciones**.
-4. Al guardar, la app envía los datos a Apps Script, que actualiza la **hoja de ruta** y el **Maestro** (`DEUDAS`, `MOVIMIENTOS`, saldos).
-5. Para ver cambios hechos en oficina, el repartidor usa **Actualizar** (lectura desde Sheets).
+4. Al presionar **Finalizar ruta**, la ruta pasa a `FINALIZADA` y ya no se pueden modificar cobros de entregas.
+5. Queda disponible la opción **Deudores** para consultar la lista de clientes con deuda; el reparto solo puede cobrar si tú lo autorizas (`PUEDE_COBRAR_DEUDAS=SI`).
+6. Al guardar cobros, Apps Script actualiza la **hoja de ruta** y/o el **Maestro** (`DEUDAS`, `MOVIMIENTOS`, saldos).
+7. Para ver cambios hechos en oficina, el repartidor usa **Actualizar** (lectura desde Sheets).
 
 ## 6. Rotación de archivos (límite de hojas)
 

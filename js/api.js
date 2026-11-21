@@ -60,6 +60,9 @@
     getRouteToday: (params) => request("getRouteToday", params),
     getClientDebts: (idCliente) => request("getClientDebts", { idCliente }),
     saveEntrega: (data) => request("saveEntrega", data),
+    finalizarRuta: (data) => request("finalizarRuta", data),
+    listDeudores: (params) => request("listDeudores", params),
+    cobrarDeudas: (data) => request("cobrarDeudas", data),
   };
 
   window.API = api;

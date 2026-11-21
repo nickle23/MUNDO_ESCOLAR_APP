@@ -32,6 +32,21 @@ function handleRequest_(e) {
       case 'getClientDebts':
         result = getClientDebts(params);
         break;
+      case 'listDeudores':
+        result = listDeudores(params);
+        break;
+      case 'finalizarRuta':
+        var payloadFinal = params;
+        if (params.payload && typeof params.payload === 'string') { try { payloadFinal = JSON.parse(params.payload); } catch (err) { payloadFinal = params; } }
+        else if (params.payload && typeof params.payload === 'object') { payloadFinal = params.payload; if (!payloadFinal.pin && params.pin) payloadFinal.pin = params.pin; }
+        result = finalizarRuta(payloadFinal);
+        break;
+      case 'cobrarDeudas':
+        var payloadCobro = params;
+        if (params.payload && typeof params.payload === 'string') { try { payloadCobro = JSON.parse(params.payload); } catch (err) { payloadCobro = params; } }
+        else if (params.payload && typeof params.payload === 'object') { payloadCobro = params.payload; if (!payloadCobro.pin && params.pin) payloadCobro.pin = params.pin; }
+        result = cobrarDeudas(payloadCobro);
+        break;
       case 'saveEntrega':
         // payload may come nested in params
         var payload = params;

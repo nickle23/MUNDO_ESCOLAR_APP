@@ -58,6 +58,11 @@ function normalizeName(s) {
   return String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
 }
 
+function isSi_(v) {
+  var s = normalizeName(v);
+  return s === 'SI' || s === 'SÍ' || s === 'YES' || s === 'TRUE' || s === '1';
+}
+
 function getMaster_() {
   var props = PropertiesService.getScriptProperties();
   var id = props.getProperty('MASTER_ID');
@@ -172,16 +177,22 @@ function requireAuth_(params) {
   var ss = getMaster_();
   var sh = getSheet_(ss, 'USUARIOS');
   var data = sh.getDataRange().getValues();
+  var headers = data.length ? data[0] : [];
+  var colMap = {};
+  for (var h = 0; h < headers.length; h++) colMap[normalizeName(headers[h])] = h;
+  var idx = function(name, fallback){ return colMap[normalizeName(name)] !== undefined ? colMap[normalizeName(name)] : fallback; };
+  var iId = idx('ID_USUARIO',0), iNombre = idx('NOMBRE',1), iCond = idx('CONDUCTOR_HOJA',2), iPin = idx('PIN',3), iActivo = idx('ACTIVO',4), iRol = idx('ROL',5), iCobro = idx('PUEDE_COBRAR_DEUDAS',7);
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
-    var rowPin = String(row[3] || '').trim(); // D PIN
-    var activo = normalizeName(row[4]); // E ACTIVO
-    if (rowPin === pin && (activo === 'SI' || activo === 'SÍ' || activo === 'YES' || activo === 'TRUE' || activo === '1')) {
+    var rowPin = String(row[iPin] || '').trim();
+    var activo = row[iActivo];
+    if (rowPin === pin && isSi_(activo)) {
       return {
-        id: String(row[0] || ''),
-        nombre: String(row[1] || ''),
-        conductorHoja: String(row[2] || ''),
-        rol: String(row[5] || 'REPARTIDOR'),
+        id: String(row[iId] || ''),
+        nombre: String(row[iNombre] || ''),
+        conductorHoja: String(row[iCond] || ''),
+        rol: String(row[iRol] || 'REPARTIDOR'),
+        puedeCobrarDeudas: isSi_(row[iCobro]),
       };
     }
   }

@@ -218,7 +218,9 @@ function saveEntrega(payload) {
   var routeInfo = getRouteInfoById_(ruta.idRuta);
   if (!routeInfo) throw new Error('Ruta no encontrada en INDICE_RUTAS.');
   assertRouteAssignedToUser_(routeInfo, user);
-  if (normalizeName(routeInfo.estado) === 'ANULADA') throw new Error('Esta ruta está anulada y no permite modificaciones.');
+  var estadoRuta = normalizeName(routeInfo.estado);
+  if (estadoRuta === 'ANULADA') throw new Error('Esta ruta está anulada y no permite modificaciones.');
+  if (estadoRuta === 'FINALIZADA' || estadoRuta === 'CERRADA') throw new Error('Esta ruta ya fue finalizada. No se pueden modificar cobros de entregas.');
 
   var idEntrega = String(entIn.idEntrega || '').trim();
   var rowNum = Number(entIn.row || 0);
@@ -275,6 +277,9 @@ function saveEntrega(payload) {
   var cobroTr = round2(toNum(cobroMet.transferencia));
   var totalCobroMet = round2(cobroEf + cobroYa + cobroTr);
   var totalCobroSel = round2(cobros.reduce(function(a,b){ return a + toNum(b.monto); }, 0));
+  if (totalCobroSel > 0 && !user.puedeCobrarDeudas) {
+    throw new Error('No tienes autorización para cobrar deudas. Solicita autorización al administrador.');
+  }
   if (totalCobroSel > 0 && Math.abs(totalCobroMet - totalCobroSel) > 0.011) {
     throw new Error('El desglose del cobro de deudas (' + totalCobroMet + ') no coincide con el total abonado (' + totalCobroSel + ').');
   }
@@ -377,4 +382,26 @@ function touchIndiceRuta_(idRuta) {
   var sh = getSheet_(master, 'INDICE_RUTAS');
   var row = findRowByValue_(sh, 1, idRuta);
   if (row !== -1) sh.getRange(row, 11).setValue(nowTs());
+}
+
+function finalizarRuta(payload) {
+  var user = requireAuth_(payload);
+  var idRuta = String((payload.ruta && payload.ruta.idRuta) || payload.idRuta || '').trim();
+  if (!idRuta) throw new Error('Falta idRuta.');
+  var routeInfo = getRouteInfoById_(idRuta);
+  if (!routeInfo) throw new Error('Ruta no encontrada en INDICE_RUTAS.');
+  assertRouteAssignedToUser_(routeInfo, user);
+
+  var master = getMaster_();
+  var sh = getSheet_(master, 'INDICE_RUTAS');
+  var row = findRowByValue_(sh, 1, idRuta);
+  if (row === -1) throw new Error('Ruta no encontrada en INDICE_RUTAS.');
+  var estadoActual = normalizeName(sh.getRange(row, 8).getValue());
+  if (estadoActual === 'ANULADA') throw new Error('La ruta está anulada.');
+  if (estadoActual === 'FINALIZADA' || estadoActual === 'CERRADA') {
+    return { ok: true, ruta: { idRuta: idRuta, estado: 'FINALIZADA' }, message: 'La ruta ya estaba finalizada.' };
+  }
+  sh.getRange(row, 8).setValue('FINALIZADA');
+  sh.getRange(row, 11).setValue(nowTs());
+  return { ok: true, ruta: { idRuta: idRuta, estado: 'FINALIZADA' } };
 }

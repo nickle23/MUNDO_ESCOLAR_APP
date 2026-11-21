@@ -48,6 +48,7 @@ Repartidores/usuarios que usan la app (asignación automática por conductor).
 | E | `ACTIVO` | `SI` / `NO` |
 | F | `ROL` | `REPARTIDOR` / `ADMIN` |
 | G | `NOTAS` | Observaciones |
+| H | `PUEDE_COBRAR_DEUDAS` | `SI` / `NO`. Controla si el repartidor puede **cobrar deudas** (solo cuando tú lo autorices). |
 
 ### 2.3 Hoja `CLIENTES`
 Catálogo de clientes con identificador único.
@@ -78,7 +79,7 @@ Permite localizar la ruta del día automáticamente y soportar múltiples archiv
 | E | `SPREADSHEET_ID` | ID del archivo de rutas donde está la hoja |
 | F | `SPREADSHEET_URL` | URL del archivo |
 | G | `HOJA` | Nombre de la pestaña de la ruta (ej. `JUEVES 16`) |
-| H | `ESTADO` | `ABIERTA` / `CERRADA` / `ANULADA` |
+| H | `ESTADO` | `ABIERTA` / `FINALIZADA` / `CERRADA` / `ANULADA` |
 | I | `TOTAL_ENTREGAS` | Conteo (opcional) |
 | J | `CREADO_EN` | Timestamp |
 | K | `ACTUALIZADO_EN` | Timestamp |

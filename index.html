@@ -15,6 +15,7 @@
       <div class="subtitle" id="subtitle">Rutas y Cobranza</div>
     </div>
     <div class="top-actions">
+      <button id="btn-deudores" class="btn btn-light hidden" title="Deudores">Deudores</button>
       <button id="btn-refresh" class="btn btn-light hidden" title="Actualizar">Actualizar</button>
       <button id="btn-logout" class="btn btn-light hidden" title="Salir">Salir</button>
     </div>
@@ -46,7 +47,11 @@
           <div class="label">Ruta</div>
           <div id="route-hoja" class="value small"></div>
         </div>
+        <div id="route-status" class="full muted small"></div>
         <div id="route-summary" class="summary full"></div>
+        <div class="full" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btn-finalizar-ruta" class="btn btn-light">Finalizar ruta</button>
+        </div>
       </div>
 
       <div class="toolbar">
@@ -55,6 +60,20 @@
 
       <div id="route-list" class="list"></div>
       <div id="route-empty" class="empty hidden card">No hay entregas para mostrar.</div>
+    </section>
+
+    <section id="view-deudores" class="view hidden">
+      <div class="card">
+        <button id="btn-back-deudores" class="btn btn-light">&larr; Volver</button>
+        <h2 class="mt">Clientes deudores</h2>
+        <p class="muted small">Aquí puedes consultar deudas pendientes. Solo podrás cobrar si el administrador te autorizó.</p>
+        <div id="deudores-status" class="msg"></div>
+      </div>
+      <div class="toolbar">
+        <input id="search-deudores" type="search" placeholder="Buscar cliente deudor..." />
+      </div>
+      <div id="deudores-list" class="list"></div>
+      <div id="deudores-empty" class="empty hidden card">No hay clientes con deudas pendientes.</div>
     </section>
 
     <section id="view-detail" class="view hidden">

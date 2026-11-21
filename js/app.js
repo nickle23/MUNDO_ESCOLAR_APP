@@ -8,13 +8,21 @@
     entregas: [],
     current: null, // entrega seleccionada
     debtsByClient: {}, // cache
+    deudores: [],
+    puedeCobrarDeudas: false,
+    returnTo: "route",
   };
 
   function setView(name) {
-    ["login", "route", "detail"].forEach(v => qs(`#view-${v}`).classList.toggle("hidden", v !== name));
+    ["login", "route", "detail", "deudores"].forEach(v => qs(`#view-${v}`).classList.toggle("hidden", v !== name));
     const logged = !!state.session;
     qs("#btn-refresh").classList.toggle("hidden", !logged || name === "login");
+    qs("#btn-deudores").classList.toggle("hidden", !logged || name === "login");
     qs("#btn-logout").classList.toggle("hidden", !logged);
+  }
+
+  function routeIsFinalizada() {
+    return !!(state.route && ["FINALIZADA","CERRADA"].includes(String(state.route.estado || "").toUpperCase()));
   }
 
   function saveSession() {
@@ -23,6 +31,7 @@
   }
   function loadSession() {
     try { state.session = JSON.parse(localStorage.getItem("me_session") || "null"); } catch { state.session = null; }
+    state.puedeCobrarDeudas = !!(state.session && state.session.usuario && state.session.usuario.puedeCobrarDeudas);
   }
 
   async function handleLogin() {
@@ -34,6 +43,7 @@
       const res = await API.login(pin);
       if (!res || !res.ok) throw new Error(res && res.error || "PIN incorrecto o usuario inactivo.");
       state.session = { usuario: res.usuario, pin }; // PIN kept locally for simple auth; for mayor seguridad usar token emitido por backend
+      state.puedeCobrarDeudas = !!(res.usuario && res.usuario.puedeCobrarDeudas);
       saveSession();
       await loadRoute();
     } catch (e) {
@@ -44,7 +54,7 @@
   }
 
   function logout() {
-    state.session = null; state.route = null; state.entregas = []; state.current = null; state.debtsByClient = {};
+    state.session = null; state.route = null; state.entregas = []; state.current = null; state.debtsByClient = {}; state.deudores = []; state.puedeCobrarDeudas = false; state.returnTo = "route";
     saveSession();
     qs("#pin").value = "";
     setView("login");
@@ -78,7 +88,12 @@
     qs("#route-conductor").textContent = r ? (r.conductor || state.session.usuario.nombre || "-") : (state.session.usuario.nombre || "-");
     qs("#route-fecha").textContent = r ? (r.fecha || todayISO()) : todayISO();
     qs("#route-hoja").textContent = r ? `${r.hoja || ""} (${r.idRuta || ""})` : "No tienes una ruta asignada para hoy. Si crees que es un error, contacta a oficina.";
-    qs("#subtitle").textContent = r ? `Ruta del día` : "Sin ruta";
+    const finalizada = routeIsFinalizada();
+    qs("#subtitle").textContent = r ? (finalizada ? "Ruta finalizada" : "Ruta del día") : "Sin ruta";
+    const st = qs("#route-status");
+    if (st) st.textContent = finalizada ? "Ruta finalizada: ya no puedes modificar cobros de entregas. Solo queda disponible la consulta/cobro de deudores (si estás autorizado)." : "";
+    const btnFin = qs("#btn-finalizar-ruta");
+    if (btnFin) { btnFin.disabled = !r || finalizada; btnFin.textContent = finalizada ? "Ruta finalizada" : "Finalizar ruta"; }
 
     const total = state.entregas.length;
     const pagados = state.entregas.filter(e => ["PAGADO","ENTREGADO"].includes((e.estadoEntrega||"").toUpperCase())).length;
@@ -118,21 +133,22 @@
           <div><span class="label">Pagado hoy:</span> <strong>${money(pagado)}</strong></div>
           ${saldoCliente > 0 ? `<div><span class="label">Deuda cliente:</span> <strong>${money(saldoCliente)}</strong></div>` : ""}
         </div>
-        <div class="item-actions"><button class="btn btn-primary" data-open="${esc(e.idEntrega || e.row)}">Abrir</button></div>
+        <div class="item-actions"><button class="btn btn-primary" data-open="${esc(e.idEntrega || e.row)}">${routeIsFinalizada() ? "Ver" : "Abrir"}</button></div>
       </div>`;
     }).join("");
 
-    qsa("[data-open]", list).forEach(btn => btn.addEventListener("click", () => openDetail(btn.getAttribute("data-open"))));
+    qsa("[data-open]", list).forEach(btn => btn.addEventListener("click", () => openDetail(btn.getAttribute("data-open"), "route")));
   }
 
   function findEntrega(id) {
     return state.entregas.find(e => String(e.idEntrega || e.row) === String(id));
   }
 
-  async function openDetail(id) {
+  async function openDetail(id, from = "route") {
     const e = findEntrega(id);
     if (!e) return;
     state.current = e;
+    state.returnTo = from;
     qs("#detail-cliente").textContent = e.cliente || "(Sin cliente)";
     qs("#detail-meta").textContent = `${e.direccion || ""}${e.vend ? " · Vend: " + e.vend : ""} · ID Cliente: ${e.idCliente || "-"}`;
     const monto = e.montoCobrar != null ? e.montoCobrar : e.totMont;
@@ -152,8 +168,85 @@
     qs("#save-msg").textContent = ""; qs("#save-msg").className = "msg";
 
     updateCalcs();
+    applyRouteLockUI();
     setView("detail");
     await loadDebtsForCurrent();
+  }
+
+  async function finalizarRutaActual() {
+    if (!state.route) return;
+    if (!confirm("¿Finalizar la ruta? Después de finalizar no podrás modificar cobros de entregas.")) return;
+    try {
+      showLoading(true);
+      const res = await API.finalizarRuta({ pin: state.session.pin, ruta: { idRuta: state.route.idRuta } });
+      if (!res || !res.ok) throw new Error(res && res.error || "No se pudo finalizar la ruta.");
+      toast("Ruta finalizada");
+      await loadRoute();
+    } catch (e) {
+      toast(e.message || String(e), 4000);
+    } finally { showLoading(false); }
+  }
+
+  async function loadDeudores() {
+    if (!state.session) return;
+    const msg = qs("#deudores-status");
+    msg.textContent = ""; msg.className = "msg";
+    try {
+      showLoading(true);
+      const res = await API.listDeudores({ pin: state.session.pin });
+      if (!res || !res.ok) throw new Error(res && res.error || "No se pudieron cargar los deudores.");
+      state.deudores = Array.isArray(res.deudores) ? res.deudores : [];
+      state.puedeCobrarDeudas = !!res.puedeCobrarDeudas;
+      renderDeudores();
+      setView("deudores");
+    } catch (e) {
+      msg.textContent = e.message || String(e); msg.classList.add("err");
+      toast(e.message || String(e), 4000);
+    } finally { showLoading(false); }
+  }
+
+  function renderDeudores() {
+    const q = (qs("#search-deudores").value || "").toLowerCase().trim();
+    const items = state.deudores.filter(d => !q || `${d.clienteNombre||""} ${d.idCliente||""} ${d.direccion||""}`.toLowerCase().includes(q));
+    qs("#deudores-empty").classList.toggle("hidden", items.length !== 0);
+    const can = state.puedeCobrarDeudas;
+    qs("#deudores-status").textContent = can ? "Autorizado para cobrar deudas." : "Solo consulta: no tienes autorización para cobrar deudas.";
+    qs("#deudores-status").className = "msg " + (can ? "ok" : "err");
+    qs("#deudores-list").innerHTML = items.map(d => `
+      <div class="item">
+        <div class="item-head">
+          <div>
+            <div class="item-name">${esc(d.clienteNombre || d.idCliente)}</div>
+            <div class="item-addr">${esc(d.direccion || d.zona || "")} · ID: ${esc(d.idCliente || "-")}</div>
+          </div>
+          <span class="badge st-CREDITO">${money(d.saldoTotal)}</span>
+        </div>
+        <div class="item-meta"><div><span class="label">Deudas:</span> <strong>${(d.deudas||[]).length}</strong></div></div>
+        <div class="item-actions"><button class="btn ${can ? "btn-primary":"btn-light"}" data-deudor="${esc(d.idCliente)}">${can ? "Cobrar" : "Ver"}</button></div>
+      </div>`).join("");
+    qsa("[data-deudor]").forEach(btn => btn.addEventListener("click", () => openDeudor(btn.getAttribute("data-deudor"))));
+  }
+
+  async function openDeudor(idCliente) {
+    const d = state.deudores.find(x => String(x.idCliente) === String(idCliente));
+    if (!d) return;
+    // Reusar vista de detalle para cobro de deuda (sin modificar entrega de ruta)
+    state.current = { idEntrega: "DEUDA_"+idCliente, row: 0, idCliente: d.idCliente, cliente: d.clienteNombre, direccion: d.direccion || d.zona || "", montoCobrar: 0, estadoEntrega: "PENDIENTE", observacion: "" };
+    state.returnTo = "deudores";
+    qs("#detail-cliente").textContent = d.clienteNombre || d.idCliente;
+    qs("#detail-meta").textContent = `${d.direccion || ""} · ID Cliente: ${d.idCliente}`;
+    qs("#detail-monto").textContent = money(0);
+    qs("#detail-estado").innerHTML = badgeEstado("CREDITO");
+    ["p-efectivo","p-yape","p-transferencia","cd-efectivo","cd-yape","cd-transferencia"].forEach(id => qs("#"+id).value = "");
+    qs("#observacion").value = ""; qs("#estado-entrega").value = "PENDIENTE"; qs("#vence-deuda").value = ""; qs("#genera-deuda").checked = false;
+    qs("#save-msg").textContent = ""; qs("#save-msg").className = "msg";
+    // bloquear campos de entrega
+    ["p-efectivo","p-yape","p-transferencia","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => { const el = qs("#"+id); if (el) el.disabled = true; });
+    const save = qs("#btn-save"); save.textContent = "Registrar cobro de deuda"; save.disabled = !state.puedeCobrarDeudas;
+    updateCalcs();
+    state.debtsByClient[d.idCliente] = { saldoTotal: d.saldoTotal, items: d.deudas || [] };
+    renderDebts(state.debtsByClient[d.idCliente]);
+    setView("detail");
   }
 
   async function loadDebtsForCurrent() {
@@ -216,16 +309,25 @@
 
     const cobro = num(qs("#cd-efectivo").value) + num(qs("#cd-yape").value) + num(qs("#cd-transferencia").value);
     qs("#calc-cobro-deuda").textContent = money(cobro);
+  }
 
-    // auto estado suggestion
-    const est = qs("#estado-entrega");
-    if (saldo <= 0 && total > 0) { /* pagado */ }
+  function applyRouteLockUI() {
+    const locked = routeIsFinalizada() && state.returnTo !== "deudores";
+    ["p-efectivo","p-yape","p-transferencia","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => {
+      const el = qs(`#${id}`); if (el) el.disabled = locked;
+    });
+    const save = qs("#btn-save");
+    if (save) save.textContent = state.returnTo === "deudores" ? "Registrar cobro de deuda" : (locked ? "Ruta finalizada" : "Guardar y sincronizar");
+    if (save) save.disabled = locked && state.returnTo !== "deudores" ? true : save.disabled;
   }
 
   async function saveCurrent() {
     const e = state.current; const r = state.route;
     if (!e || !r) return;
     const msg = qs("#save-msg"); msg.textContent = ""; msg.className = "msg";
+    if (routeIsFinalizada() && state.returnTo !== "deudores") {
+      msg.textContent = "La ruta está finalizada. No se pueden modificar cobros de entregas."; msg.classList.add("err"); return;
+    }
     const monto = num(e.montoCobrar != null ? e.montoCobrar : e.totMont);
     const pago = { efectivo: num(qs("#p-efectivo").value), yape: num(qs("#p-yape").value), transferencia: num(qs("#p-transferencia").value) };
     const totalPagado = +(pago.efectivo + pago.yape + pago.transferencia).toFixed(2);
@@ -247,9 +349,37 @@
     const totalAbonoSel = +seleccion.reduce((a,b)=>a+b.monto,0).toFixed(2);
     const cobroMet = { efectivo: num(qs("#cd-efectivo").value), yape: num(qs("#cd-yape").value), transferencia: num(qs("#cd-transferencia").value) };
     const totalCobroMet = +(cobroMet.efectivo + cobroMet.yape + cobroMet.transferencia).toFixed(2);
+    if (totalAbonoSel > 0 && !state.puedeCobrarDeudas) {
+      msg.textContent = "No tienes autorización para cobrar deudas. Solicita autorización al administrador."; msg.classList.add("err"); return;
+    }
     if (totalAbonoSel > 0 && Math.abs(totalCobroMet - totalAbonoSel) > 0.01) {
       msg.textContent = `El desglose del cobro de deudas (${money(totalCobroMet)}) debe ser igual al total a abonar (${money(totalAbonoSel)}).`;
       msg.classList.add("err"); return;
+    }
+
+    if (state.returnTo === "deudores") {
+      if (totalAbonoSel <= 0) { msg.textContent = "Selecciona al menos una deuda para abonar."; msg.classList.add("err"); return; }
+      try {
+        showLoading(true); qs("#btn-save").disabled = true;
+        const res = await API.cobrarDeudas({
+          pin: state.session.pin,
+          idCliente: e.idCliente,
+          clienteNombre: e.cliente,
+          cobroDeudas: seleccion,
+          cobroDeudasMetodos: cobroMet,
+          idRuta: state.route ? state.route.idRuta : ""
+        });
+        if (!res || !res.ok) throw new Error(res && res.error || "No se pudo registrar el cobro de deuda.");
+        msg.textContent = "Cobro de deuda registrado correctamente."; msg.classList.add("ok");
+        toast("Cobro registrado");
+        await loadDeudores();
+        setView("deudores");
+      } catch (err) {
+        msg.textContent = err.message || String(err); msg.classList.add("err");
+      } finally {
+        qs("#btn-save").disabled = false; showLoading(false);
+      }
+      return;
     }
 
     const payload = {
@@ -298,8 +428,12 @@
     qs("#btn-login").addEventListener("click", handleLogin);
     qs("#pin").addEventListener("keydown", (e) => { if (e.key === "Enter") handleLogin(); });
     qs("#btn-logout").addEventListener("click", logout);
-    qs("#btn-refresh").addEventListener("click", loadRoute);
-    qs("#btn-back").addEventListener("click", () => setView("route"));
+    qs("#btn-refresh").addEventListener("click", () => { if (qs("#view-deudores") && !qs("#view-deudores").classList.contains("hidden")) loadDeudores(); else loadRoute(); });
+    qs("#btn-deudores").addEventListener("click", loadDeudores);
+    qs("#btn-back-deudores").addEventListener("click", () => setView("route"));
+    qs("#btn-finalizar-ruta").addEventListener("click", finalizarRutaActual);
+    qs("#search-deudores").addEventListener("input", renderDeudores);
+    qs("#btn-back").addEventListener("click", () => setView(state.returnTo === "deudores" ? "deudores" : "route"));
     qs("#search").addEventListener("input", renderList);
     ["p-efectivo","p-yape","p-transferencia","genera-deuda","cd-efectivo","cd-yape","cd-transferencia"].forEach(id => {
       qs(`#${id}`).addEventListener("input", updateCalcs);

@@ -11,6 +11,91 @@ function getClientDebts(params) {
   return { ok: true, idCliente: idCliente, saldoTotal: entry.saldoTotal, deudas: entry.items };
 }
 
+function listDeudores(params) {
+  var user = requireAuth_(params);
+  // Lista disponible para usuarios autenticados; el cobro en sí se valida con PUEDE_COBRAR_DEUDAS
+  var master = getMaster_();
+  var sh = getSheet_(master, 'DEUDAS');
+  var last = sh.getLastRow();
+  var byClient = {};
+  if (last >= 2) {
+    var data = sh.getRange(2, 1, last - 1, 14).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var r = data[i];
+      var idCliente = String(r[1] || '').trim();
+      if (!idCliente) continue;
+      var saldo = round2(toNum(r[7]));
+      var estado = normalizeName(r[9]);
+      if (estado === 'ANULADA' || saldo <= 0.009) continue;
+      if (!byClient[idCliente]) byClient[idCliente] = { idCliente: idCliente, clienteNombre: String(r[2] || ''), saldoTotal: 0, deudas: [] };
+      byClient[idCliente].saldoTotal = round2(byClient[idCliente].saldoTotal + saldo);
+      if (!byClient[idCliente].clienteNombre) byClient[idCliente].clienteNombre = String(r[2] || '');
+      byClient[idCliente].deudas.push({
+        idDeuda: String(r[0] || ''),
+        fechaOrigen: toDateStr(r[3]),
+        montoOriginal: round2(toNum(r[6])),
+        saldoPendiente: saldo,
+        fechaVencimiento: toDateStr(r[8]),
+        estado: String(r[9] || '')
+      });
+    }
+  }
+
+  var clientes = getSheet_(master, 'CLIENTES');
+  var cmap = {};
+  if (clientes.getLastRow() >= 2) {
+    var cdata = clientes.getRange(2, 1, clientes.getLastRow() - 1, 5).getValues();
+    for (var j = 0; j < cdata.length; j++) {
+      var idc = String(cdata[j][0] || '').trim();
+      if (!idc) continue;
+      cmap[idc] = { nombre: String(cdata[j][1] || ''), direccion: String(cdata[j][2] || ''), zona: String(cdata[j][3] || ''), telefono: String(cdata[j][4] || '') };
+    }
+  }
+
+  var list = Object.keys(byClient).map(function (k) {
+    var item = byClient[k];
+    var cinfo = cmap[k] || {};
+    item.clienteNombre = item.clienteNombre || cinfo.nombre || k;
+    item.direccion = cinfo.direccion || '';
+    item.zona = cinfo.zona || '';
+    item.telefono = cinfo.telefono || '';
+    item.deudas.sort(function(a,b){ return String(a.fechaVencimiento||'9999').localeCompare(String(b.fechaVencimiento||'9999')); });
+    return item;
+  }).filter(function(x){ return x.saldoTotal > 0.009; }).sort(function(a,b){ return b.saldoTotal - a.saldoTotal; });
+
+  return { ok: true, puedeCobrarDeudas: !!user.puedeCobrarDeudas, deudores: list };
+}
+
+function cobrarDeudas(payload) {
+  var user = requireAuth_(payload);
+  if (!user.puedeCobrarDeudas) throw new Error('No tienes autorización para cobrar deudas. Solicita autorización al administrador.');
+  var idCliente = String(payload.idCliente || '').trim();
+  var clienteNombre = String(payload.clienteNombre || '').trim();
+  var cobros = Array.isArray(payload.cobroDeudas) ? payload.cobroDeudas : [];
+  var cobroMet = payload.cobroDeudasMetodos || {};
+  var cobroEf = round2(toNum(cobroMet.efectivo));
+  var cobroYa = round2(toNum(cobroMet.yape));
+  var cobroTr = round2(toNum(cobroMet.transferencia));
+  var totalCobroMet = round2(cobroEf + cobroYa + cobroTr);
+  var totalCobroSel = round2(cobros.reduce(function(a,b){ return a + toNum(b.monto); }, 0));
+  if (!idCliente) throw new Error('idCliente requerido.');
+  if (totalCobroSel <= 0) throw new Error('Selecciona al menos una deuda para abonar.');
+  if (Math.abs(totalCobroMet - totalCobroSel) > 0.011) throw new Error('El desglose del cobro (' + totalCobroMet + ') no coincide con el total a abonar (' + totalCobroSel + ').');
+
+  var detalleCobro = [];
+  var lock = LockService.getScriptLock();
+  try { lock.tryLock(15000); } catch(e) {}
+  try {
+    detalleCobro = aplicarAbonosDeuda_(idCliente, clienteNombre, cobros, { efectivo: cobroEf, yape: cobroYa, transferencia: cobroTr }, {
+      idRuta: String(payload.idRuta || ''), idEntrega: '', usuario: user.nombre || user.id
+    });
+    actualizarSaldoCliente_(idCliente);
+  } finally {
+    try { lock.releaseLock(); } catch(e) {}
+  }
+  return { ok: true, idCliente: idCliente, totalCobrado: totalCobroSel, detalle: detalleCobro };
+}
+
 function getDebtsForClients_(ids) {
   var master = getMaster_();
   var sh = getSheet_(master, 'DEUDAS');
