@@ -64,8 +64,10 @@
 
     <section id="view-deudores" class="view hidden">
       <div class="card">
-        <button id="btn-back-deudores" class="btn btn-light">&larr; Volver</button>
-        <h2 class="mt">Clientes deudores</h2>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="btn-back-deudores" class="btn btn-light" style="padding:6px 10px;font-size:13px;">&larr; Volver</button>
+          <h2 style="margin:0;font-size:20px;">Clientes deudores</h2>
+        </div>
         <p class="muted small">Aquí puedes consultar deudas pendientes. Solo podrás cobrar si el administrador te autorizó.</p>
         <div id="deudores-status" class="msg"></div>
       </div>
@@ -78,8 +80,10 @@
 
     <section id="view-detail" class="view hidden">
       <div class="card">
-        <button id="btn-back" class="btn btn-light">&larr; Volver</button>
-        <h2 id="detail-cliente" class="mt"></h2>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="btn-back" class="btn btn-light" style="padding:6px 10px;font-size:13px;">&larr; Volver</button>
+          <h2 id="detail-cliente" style="margin:0;font-size:20px;"></h2>
+        </div>
         <div id="detail-meta" class="meta"></div>
         <div class="grid2 mt">
           <div id="detail-monto-wrap"><div class="label">Monto a cobrar</div><div id="detail-monto" class="value"></div></div>

@@ -60,10 +60,12 @@
     setView("login");
   }
 
-  async function loadRoute() {
+  async function loadRoute(opts = {}) {
     if (!state.session) return setView("login");
+    const silent = !!opts.silent;
     try {
-      showLoading(true);
+      if (!silent) showLoading(true);
+      else { qs("#subtitle").textContent = "Actualizando..."; }
       const fecha = (window.APP_CONFIG.DEFAULT_DATE === "today" || !window.APP_CONFIG.DEFAULT_DATE) ? todayISO() : window.APP_CONFIG.DEFAULT_DATE;
       const res = await API.getRouteToday({ pin: state.session.pin, fecha });
       if (!res || !res.ok) throw new Error(res && res.error || "No se pudo cargar la ruta.");
@@ -72,14 +74,15 @@
       if (res.deudasPorCliente) state.debtsByClient = { ...state.debtsByClient, ...res.deudasPorCliente };
       renderRoute();
       setView("route");
+      prefetchDebtsForRoute();
+      if (silent) toast("Ruta actualizada");
     } catch (e) {
       toast(e.message || String(e), 4000);
-      // If route not found, still show route view with message
       state.route = state.route || null; state.entregas = [];
       renderRoute();
       setView("route");
     } finally {
-      showLoading(false);
+      if (!silent) showLoading(false);
     }
   }
 
@@ -156,10 +159,11 @@
     qs("#detail-monto-wrap").classList.toggle("hidden", isDebtMode);
     qs("#detail-estado-wrap").classList.toggle("hidden", isDebtMode);
 
+    // En modo deudor: solo cobro de deuda, interfaz simple
     qs("#cobro-deuda-card").classList.remove("hidden");
-    qs("#cobro-title").textContent = isDebtMode ? "Cobro de deuda pendiente" : "Cobro de deudas anteriores";
+    qs("#cobro-title").textContent = isDebtMode ? "Abonar deuda" : "Cobro de deudas anteriores";
     qs("#cobro-subtitle").textContent = isDebtMode
-      ? "Selecciona la deuda, ingresa el monto a abonar (puede ser parcial), elige método de pago y registra el cobro."
+      ? "Selecciona la deuda, ingresa el monto a abonar (parcial o total), elige el método y registra."
       : "Selecciona deudas y el monto a abonar. El abono se registra con el desglose indicado.";
     qs("#btn-save").textContent = isDebtMode ? "Registrar cobro de deuda" : (locked ? "Ruta finalizada" : "Guardar y sincronizar");
     qs("#btn-save").disabled = isDebtMode ? !canDebt : locked;
@@ -218,19 +222,18 @@
   async function loadDeudores() {
     if (!state.session) return;
     const msg = qs("#deudores-status");
-    msg.textContent = ""; msg.className = "msg";
+    msg.textContent = "Cargando deudores..."; msg.className = "msg muted";
+    setView("deudores");
     try {
-      showLoading(true);
       const res = await API.listDeudores({ pin: state.session.pin });
       if (!res || !res.ok) throw new Error(res && res.error || "No se pudieron cargar los deudores.");
       state.deudores = Array.isArray(res.deudores) ? res.deudores : [];
       state.puedeCobrarDeudas = !!res.puedeCobrarDeudas;
       renderDeudores();
-      setView("deudores");
     } catch (e) {
-      msg.textContent = e.message || String(e); msg.classList.add("err");
+      msg.textContent = e.message || String(e); msg.className = "msg err";
       toast(e.message || String(e), 4000);
-    } finally { showLoading(false); }
+    }
   }
 
   function renderDeudores() {
@@ -255,22 +258,34 @@
     qsa("[data-deudor]").forEach(btn => btn.addEventListener("click", () => openDeudor(btn.getAttribute("data-deudor"))));
   }
 
+  function prefetchDebtsForRoute() {
+    const ids = [...new Set(state.entregas.map(e => e.idCliente).filter(Boolean))].filter(id => !state.debtsByClient[id]);
+    ids.slice(0, 8).forEach(id => {
+      API.getClientDebts({ pin: state.session.pin, idCliente: id }).then(res => {
+        if (res && res.ok) {
+          state.debtsByClient[id] = { saldoTotal: res.saldoTotal || 0, items: res.deudas || [] };
+          if (state.current && state.current.idCliente === id) renderDebts(state.debtsByClient[id]);
+        }
+      }).catch(() => {});
+    });
+  }
+
   async function openDeudor(idCliente) {
     const d = state.deudores.find(x => String(x.idCliente) === String(idCliente));
     if (!d) return;
     state.current = { idEntrega: "DEUDA_"+idCliente, row: 0, idCliente: d.idCliente, cliente: d.clienteNombre, direccion: d.direccion || d.zona || "", montoCobrar: 0, estadoEntrega: "PENDIENTE", observacion: "" };
     state.returnTo = "deudores";
     qs("#detail-cliente").textContent = d.clienteNombre || d.idCliente;
-    qs("#detail-meta").textContent = `${d.direccion || d.zona || ""} · ID Cliente: ${d.idCliente}`;
+    qs("#detail-meta").textContent = `${d.direccion || d.zona || ""}${d.direccion || d.zona ? " · " : ""}ID: ${d.idCliente} · Saldo pendiente: ${money(d.saldoTotal)}`;
     qs("#detail-monto").textContent = money(0);
     qs("#detail-estado").innerHTML = badgeEstado("CREDITO");
     ["p-efectivo","p-yape","p-transferencia","cd-efectivo","cd-yape","cd-transferencia"].forEach(id => { const el = qs("#"+id); if (el) el.value = ""; });
     qs("#observacion").value = ""; qs("#estado-entrega").value = "PENDIENTE"; qs("#vence-deuda").value = ""; qs("#genera-deuda").checked = false;
     qs("#save-msg").textContent = ""; qs("#save-msg").className = "msg";
-    applyDetailMode();
-    updateCalcs();
     state.debtsByClient[d.idCliente] = { saldoTotal: d.saldoTotal, items: d.deudas || [] };
+    applyDetailMode();
     renderDebts(state.debtsByClient[d.idCliente]);
+    updateCalcs();
     setView("detail");
   }
 
@@ -286,7 +301,7 @@
     try {
       let data = state.debtsByClient[e.idCliente];
       if (!data || !data.items) {
-        const res = await API.getClientDebts(e.idCliente);
+        const res = await API.getClientDebts({ pin: state.session.pin, idCliente: e.idCliente });
         if (res && res.ok) data = { saldoTotal: res.saldoTotal || 0, items: res.deudas || [] };
         else data = { saldoTotal: 0, items: [] };
         state.debtsByClient[e.idCliente] = data;
@@ -319,11 +334,11 @@
 
     qs("#cobro-deudas-list").innerHTML = items.map(d => `
       <div class="debt-row" data-deuda="${esc(d.idDeuda)}">
-        <div class="row1"><strong>${esc(d.idDeuda)}</strong><span>Saldo pendiente: ${money(d.saldoPendiente)}</span></div>
-        <div class="row2">Vence: ${esc(d.fechaVencimiento || "-")} · Estado: ${esc(d.estado || "-")}</div>
+        <div class="row1"><strong>Deuda ${esc(d.idDeuda)}</strong><span class="badge st-CREDITO">Saldo: ${money(d.saldoPendiente)}</span></div>
+        <div class="row2">Vence: ${esc(d.fechaVencimiento || "-")}</div>
         <div class="debt-pay">
-          <label class="check"><input type="checkbox" class="cd-sel" data-id="${esc(d.idDeuda)}" ${disabled ? "disabled" : ""} /> Abonar esta deuda</label>
-          <input type="number" step="0.01" min="0" max="${esc(d.saldoPendiente)}" class="cd-monto" data-id="${esc(d.idDeuda)}" data-max="${esc(d.saldoPendiente)}" placeholder="Monto a abonar" ${disabled ? "disabled" : ""} />
+          <label class="check"><input type="checkbox" class="cd-sel" data-id="${esc(d.idDeuda)}" ${disabled ? "disabled" : ""} /> Abonar</label>
+          <input type="number" step="0.01" min="0" max="${esc(d.saldoPendiente)}" class="cd-monto" data-id="${esc(d.idDeuda)}" data-max="${esc(d.saldoPendiente)}" placeholder="Monto" ${disabled ? "disabled" : ""} />
         </div>
       </div>`).join("");
 
@@ -417,7 +432,8 @@
       } catch (err) {
         msg.textContent = err.message || String(err); msg.classList.add("err");
       } finally {
-        qs("#btn-save").disabled = false; showLoading(false);
+        qs("#btn-save").disabled = (state.returnTo === "deudores") ? !state.puedeCobrarDeudas : (routeIsFinalizada());
+        showLoading(false);
       }
       return;
     }
@@ -459,7 +475,7 @@
       msg.textContent = err.message || String(err); msg.classList.add("err");
       toast("Error al guardar", 3000);
     } finally {
-      qs("#btn-save").disabled = false;
+      qs("#btn-save").disabled = (state.returnTo === "deudores") ? !state.puedeCobrarDeudas : routeIsFinalizada();
       showLoading(false);
     }
   }
@@ -468,7 +484,10 @@
     qs("#btn-login").addEventListener("click", handleLogin);
     qs("#pin").addEventListener("keydown", (e) => { if (e.key === "Enter") handleLogin(); });
     qs("#btn-logout").addEventListener("click", logout);
-    qs("#btn-refresh").addEventListener("click", () => { if (qs("#view-deudores") && !qs("#view-deudores").classList.contains("hidden")) loadDeudores(); else loadRoute(); });
+    qs("#btn-refresh").addEventListener("click", () => {
+      if (qs("#view-deudores") && !qs("#view-deudores").classList.contains("hidden")) loadDeudores();
+      else { loadRoute({ silent: !!state.route }); }
+    });
     qs("#btn-deudores").addEventListener("click", loadDeudores);
     qs("#btn-back-deudores").addEventListener("click", () => setView("route"));
     qs("#btn-finalizar-ruta").addEventListener("click", finalizarRutaActual);
