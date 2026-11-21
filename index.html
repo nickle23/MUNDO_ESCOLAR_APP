@@ -92,7 +92,8 @@
       </div>
 
       <div class="card" id="debts-card">
-        <h3>Deudas anteriores del cliente</h3>
+        <h3>Estado de deudas</h3>
+        <div id="debt-status-msg" class="msg"></div>
         <div id="debts-list" class="muted">Cargando...</div>
       </div>
 
@@ -131,22 +132,25 @@
       <div class="card" id="cobro-deuda-card">
         <h3 id="cobro-title">Cobro de deudas anteriores</h3>
         <p class="muted small" id="cobro-subtitle">Selecciona deudas y el monto a abonar. El abono se registra con el desglose indicado.</p>
-        <div id="cobro-deudas-list" class="muted">Sin deudas pendientes.</div>
-        <div class="grid3 mt">
-          <div>
-            <label for="cd-efectivo">Efectivo (S/)</label>
-            <input id="cd-efectivo" type="number" step="0.01" min="0" inputmode="decimal" />
+        <div id="cobro-no-deudas" class="debt-alert ok hidden">CLIENTE NO REGISTRA DEUDAS PENDIENTES</div>
+        <div id="cobro-deuda-body">
+          <div id="cobro-deudas-list" class="muted">Sin deudas pendientes.</div>
+          <div class="grid3 mt">
+            <div>
+              <label for="cd-efectivo">Efectivo (S/)</label>
+              <input id="cd-efectivo" type="number" step="0.01" min="0" inputmode="decimal" />
+            </div>
+            <div>
+              <label for="cd-yape">Yape (S/)</label>
+              <input id="cd-yape" type="number" step="0.01" min="0" inputmode="decimal" />
+            </div>
+            <div>
+              <label for="cd-transferencia">Transferencia (S/)</label>
+              <input id="cd-transferencia" type="number" step="0.01" min="0" inputmode="decimal" />
+            </div>
           </div>
-          <div>
-            <label for="cd-yape">Yape (S/)</label>
-            <input id="cd-yape" type="number" step="0.01" min="0" inputmode="decimal" />
-          </div>
-          <div>
-            <label for="cd-transferencia">Transferencia (S/)</label>
-            <input id="cd-transferencia" type="number" step="0.01" min="0" inputmode="decimal" />
-          </div>
+          <div class="muted small mt">Total cobro deudas: <strong id="calc-cobro-deuda">S/ 0.00</strong></div>
         </div>
-        <div class="muted small mt">Total cobro deudas: <strong id="calc-cobro-deuda">S/ 0.00</strong></div>
       </div>
 
       <div class="card" id="obs-card">

@@ -159,7 +159,6 @@
     qs("#detail-monto-wrap").classList.toggle("hidden", isDebtMode);
     qs("#detail-estado-wrap").classList.toggle("hidden", isDebtMode);
 
-    // En modo deudor: solo cobro de deuda, interfaz simple
     qs("#cobro-deuda-card").classList.remove("hidden");
     qs("#cobro-title").textContent = isDebtMode ? "Abonar deuda" : "Cobro de deudas anteriores";
     qs("#cobro-subtitle").textContent = isDebtMode
@@ -167,6 +166,8 @@
       : "Selecciona deudas y el monto a abonar. El abono se registra con el desglose indicado.";
     qs("#btn-save").textContent = isDebtMode ? "Registrar cobro de deuda" : (locked ? "Ruta finalizada" : "Guardar y sincronizar");
     qs("#btn-save").disabled = isDebtMode ? !canDebt : locked;
+    qs("#cobro-no-deudas").classList.add("hidden");
+    qs("#cobro-deuda-body").classList.remove("hidden");
 
     ["p-efectivo","p-yape","p-transferencia","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => {
       const el = qs(`#${id}`); if (el) el.disabled = !isDebtMode && locked;
@@ -313,24 +314,44 @@
     }
   }
 
+  function roundMoney(v){ return Math.round((num(v) + Number.EPSILON) * 100) / 100; }
+
   function renderDebts(data) {
     const items = (data && data.items || []).filter(d => Number(d.saldoPendiente || 0) > 0);
     const isDebtMode = state.returnTo === "deudores";
     const canDebt = !!state.puedeCobrarDeudas;
     const disabled = isDebtMode ? !canDebt : false;
+    const noDebtMsg = qs("#cobro-no-deudas");
+    const debtBody = qs("#cobro-deuda-body");
+    const debtStatus = qs("#debt-status-msg");
+    const saldoTotal = roundMoney(items.reduce((a,b)=>a + num(b.saldoPendiente), 0));
 
     if (!items.length) {
-      qs("#debts-list").innerHTML = `<span class="muted">Sin deudas pendientes. Saldo: ${money(0)}</span>`;
+      if (debtStatus) {
+        debtStatus.className = "debt-alert ok";
+        debtStatus.innerHTML = `CLIENTE NO REGISTRA DEUDAS PENDIENTES<span class="sub">Saldo pendiente: ${money(0)}</span>`;
+      }
+      qs("#debts-list").innerHTML = `<span class="muted">No hay deudas anteriores registradas.</span>`;
       qs("#cobro-deudas-list").innerHTML = `<span class="muted">Sin deudas pendientes.</span>`;
+      ["cd-efectivo","cd-yape","cd-transferencia"].forEach(id => { const el = qs("#"+id); if (el) el.value = ""; });
       qs("#calc-cobro-deuda").textContent = money(0);
+      if (noDebtMsg) { noDebtMsg.classList.toggle("hidden", isDebtMode); noDebtMsg.textContent = "CLIENTE NO REGISTRA DEUDAS PENDIENTES"; }
+      if (debtBody) debtBody.classList.toggle("hidden", !isDebtMode);
       return;
     }
 
+    if (debtStatus) {
+      debtStatus.className = "debt-alert err";
+      debtStatus.innerHTML = `CLIENTE CON DEUDA PENDIENTE<span class="sub">Saldo pendiente total: ${money(saldoTotal)} · ${items.length} deuda(s)</span>`;
+    }
+    if (noDebtMsg) noDebtMsg.classList.add("hidden");
+    if (debtBody) debtBody.classList.remove("hidden");
+
     qs("#debts-list").innerHTML = items.map(d => `
       <div class="debt-row">
-        <div class="row1"><strong>${esc(d.idDeuda || "Deuda")}</strong><strong>${money(d.saldoPendiente)}</strong></div>
+        <div class="row1"><strong>${esc(d.idDeuda || "Deuda")}</strong><strong class="error">${money(d.saldoPendiente)}</strong></div>
         <div class="row2">Origen: ${esc(d.fechaOrigen || "-")} · Vence: ${esc(d.fechaVencimiento || "-")} · Estado: ${esc(d.estado || "-")}</div>
-      </div>`).join("") + `<div class="mt"><strong>Saldo total: ${money(data.saldoTotal || 0)}</strong></div>`;
+      </div>`).join("") + `<div class="mt"><strong>Saldo total pendiente: ${money(saldoTotal)}</strong></div>`;
 
     qs("#cobro-deudas-list").innerHTML = items.map(d => `
       <div class="debt-row" data-deuda="${esc(d.idDeuda)}">

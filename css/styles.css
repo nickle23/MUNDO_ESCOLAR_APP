@@ -34,6 +34,11 @@ h1 { font-size: 22px; } h2 { font-size: 20px; } h3 { font-size: 16px; }
 .msg.ok { color: var(--success); }
 .msg.err { color: var(--danger); }
 
+.debt-alert { margin-top: 8px; padding: 10px 12px; border-radius: 10px; font-weight: 700; font-size: 14px; }
+.debt-alert.ok { color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; }
+.debt-alert.err { color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; }
+.debt-alert .sub { display:block; font-size: 13px; font-weight: 600; margin-top: 4px; opacity: .95; }
+
 label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
 input, select, textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 16px; background: #fff; color: var(--text); }
 textarea { resize: vertical; }
