@@ -378,22 +378,50 @@
       let v = num(e.target.value);
       if (v > max) { v = max; e.target.value = max; }
       if (ch) ch.checked = v > 0;
+      // si abona exactamente una deuda seleccionada, autocompletar desglose para cuadrar rápido
+      const selected = qsa(".cd-sel:checked");
+      if (selected.length === 1 && selected[0].getAttribute("data-id") === id) {
+        const totalSel = roundMoney(Math.min(v, max));
+        const ef = qs("#cd-efectivo"), ya = qs("#cd-yape"), tr = qs("#cd-transferencia");
+        const hasManual = num(ef.value)+num(ya.value)+num(tr.value) > 0;
+        if (!hasManual) ef.value = totalSel ? totalSel.toFixed(2) : "";
+      }
       updateCalcs();
     }));
   }
 
   function updateCalcs() {
     const e = state.current || {};
-    const monto = num(e.montoCobrar != null ? e.montoCobrar : e.totMont);
-    const total = num(qs("#p-efectivo").value) + num(qs("#p-yape").value) + num(qs("#p-transferencia").value);
-    const saldo = Math.max(0, +(monto - total).toFixed(2));
+    const monto = roundMoney(num(e.montoCobrar != null ? e.montoCobrar : e.totMont));
+    const total = roundMoney(num(qs("#p-efectivo").value) + num(qs("#p-yape").value) + num(qs("#p-transferencia").value));
+    const saldo = Math.max(0, roundMoney(monto - total));
+    const calcMonto = qs("#calc-monto");
+    if (calcMonto) calcMonto.textContent = money(monto);
     qs("#calc-total").textContent = money(total);
-    qs("#calc-saldo").textContent = money(saldo);
+    const saldoEl = qs("#calc-saldo");
+    saldoEl.textContent = money(saldo);
+    saldoEl.className = saldo > 0 ? "text-danger" : "text-success";
     qs("#credito-fields").classList.toggle("hidden", !(qs("#genera-deuda").checked && saldo > 0));
     if (saldo <= 0) qs("#genera-deuda").checked = false;
 
-    const cobro = num(qs("#cd-efectivo").value) + num(qs("#cd-yape").value) + num(qs("#cd-transferencia").value);
+    const selTotal = roundMoney(qsa(".cd-sel:checked").reduce((acc, ch) => {
+      const id = ch.getAttribute("data-id");
+      const inp = qs(`.cd-monto[data-id="${id}"]`);
+      const max = num(inp && inp.getAttribute("data-max"));
+      let v = num(inp && inp.value);
+      if (v <= 0) v = max;
+      return acc + Math.min(v, max);
+    }, 0));
+    const cobro = roundMoney(num(qs("#cd-efectivo").value) + num(qs("#cd-yape").value) + num(qs("#cd-transferencia").value));
+    const faltaCuadrar = Math.max(0, roundMoney(selTotal - cobro));
+    const selEl = qs("#calc-deuda-seleccionado");
+    if (selEl) selEl.textContent = money(selTotal);
     qs("#calc-cobro-deuda").textContent = money(cobro);
+    const faltaEl = qs("#calc-deuda-falta");
+    if (faltaEl) {
+      faltaEl.textContent = money(faltaCuadrar);
+      faltaEl.className = faltaCuadrar > 0 ? "text-danger" : "text-success";
+    }
   }
 
   async function saveCurrent() {
