@@ -82,8 +82,8 @@
         <h2 id="detail-cliente" class="mt"></h2>
         <div id="detail-meta" class="meta"></div>
         <div class="grid2 mt">
-          <div><div class="label">Monto a cobrar</div><div id="detail-monto" class="value"></div></div>
-          <div><div class="label">Estado</div><div id="detail-estado" class="value"></div></div>
+          <div id="detail-monto-wrap"><div class="label">Monto a cobrar</div><div id="detail-monto" class="value"></div></div>
+          <div id="detail-estado-wrap"><div class="label">Estado</div><div id="detail-estado" class="value"></div></div>
         </div>
       </div>
 
@@ -92,7 +92,7 @@
         <div id="debts-list" class="muted">Cargando...</div>
       </div>
 
-      <div class="card">
+      <div class="card" id="pago-card">
         <h3>Pago de esta entrega</h3>
         <div class="grid3">
           <div>
@@ -125,8 +125,8 @@
       </div>
 
       <div class="card" id="cobro-deuda-card">
-        <h3>Cobro de deudas anteriores</h3>
-        <p class="muted small">Selecciona deudas y el monto a abonar. El abono se registra con el desglose indicado.</p>
+        <h3 id="cobro-title">Cobro de deudas anteriores</h3>
+        <p class="muted small" id="cobro-subtitle">Selecciona deudas y el monto a abonar. El abono se registra con el desglose indicado.</p>
         <div id="cobro-deudas-list" class="muted">Sin deudas pendientes.</div>
         <div class="grid3 mt">
           <div>
@@ -145,7 +145,7 @@
         <div class="muted small mt">Total cobro deudas: <strong id="calc-cobro-deuda">S/ 0.00</strong></div>
       </div>
 
-      <div class="card">
+      <div class="card" id="obs-card">
         <h3>Observaciones y estado</h3>
         <label for="estado-entrega">Estado de entrega</label>
         <select id="estado-entrega">

@@ -144,6 +144,34 @@
     return state.entregas.find(e => String(e.idEntrega || e.row) === String(id));
   }
 
+  function applyDetailMode() {
+    const isDebtMode = state.returnTo === "deudores";
+    const locked = routeIsFinalizada() && !isDebtMode;
+    const canDebt = !!state.puedeCobrarDeudas;
+
+    qs("#pago-card").classList.toggle("hidden", isDebtMode);
+    qs("#credito-card").classList.toggle("hidden", isDebtMode);
+    qs("#obs-card").classList.toggle("hidden", isDebtMode);
+    qs("#debts-card").classList.toggle("hidden", isDebtMode);
+    qs("#detail-monto-wrap").classList.toggle("hidden", isDebtMode);
+    qs("#detail-estado-wrap").classList.toggle("hidden", isDebtMode);
+
+    qs("#cobro-deuda-card").classList.remove("hidden");
+    qs("#cobro-title").textContent = isDebtMode ? "Cobro de deuda pendiente" : "Cobro de deudas anteriores";
+    qs("#cobro-subtitle").textContent = isDebtMode
+      ? "Selecciona la deuda, ingresa el monto a abonar (puede ser parcial), elige método de pago y registra el cobro."
+      : "Selecciona deudas y el monto a abonar. El abono se registra con el desglose indicado.";
+    qs("#btn-save").textContent = isDebtMode ? "Registrar cobro de deuda" : (locked ? "Ruta finalizada" : "Guardar y sincronizar");
+    qs("#btn-save").disabled = isDebtMode ? !canDebt : locked;
+
+    ["p-efectivo","p-yape","p-transferencia","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => {
+      const el = qs(`#${id}`); if (el) el.disabled = !isDebtMode && locked;
+    });
+    ["cd-efectivo","cd-yape","cd-transferencia"].forEach(id => {
+      const el = qs(`#${id}`); if (el) el.disabled = isDebtMode ? !canDebt : false;
+    });
+  }
+
   async function openDetail(id, from = "route") {
     const e = findEntrega(id);
     if (!e) return;
@@ -167,8 +195,8 @@
     qs("#cd-transferencia").value = e.cobroDeudaTransferencia || "";
     qs("#save-msg").textContent = ""; qs("#save-msg").className = "msg";
 
+    applyDetailMode();
     updateCalcs();
-    applyRouteLockUI();
     setView("detail");
     await loadDebtsForCurrent();
   }
@@ -230,19 +258,16 @@
   async function openDeudor(idCliente) {
     const d = state.deudores.find(x => String(x.idCliente) === String(idCliente));
     if (!d) return;
-    // Reusar vista de detalle para cobro de deuda (sin modificar entrega de ruta)
     state.current = { idEntrega: "DEUDA_"+idCliente, row: 0, idCliente: d.idCliente, cliente: d.clienteNombre, direccion: d.direccion || d.zona || "", montoCobrar: 0, estadoEntrega: "PENDIENTE", observacion: "" };
     state.returnTo = "deudores";
     qs("#detail-cliente").textContent = d.clienteNombre || d.idCliente;
-    qs("#detail-meta").textContent = `${d.direccion || ""} · ID Cliente: ${d.idCliente}`;
+    qs("#detail-meta").textContent = `${d.direccion || d.zona || ""} · ID Cliente: ${d.idCliente}`;
     qs("#detail-monto").textContent = money(0);
     qs("#detail-estado").innerHTML = badgeEstado("CREDITO");
-    ["p-efectivo","p-yape","p-transferencia","cd-efectivo","cd-yape","cd-transferencia"].forEach(id => qs("#"+id).value = "");
+    ["p-efectivo","p-yape","p-transferencia","cd-efectivo","cd-yape","cd-transferencia"].forEach(id => { const el = qs("#"+id); if (el) el.value = ""; });
     qs("#observacion").value = ""; qs("#estado-entrega").value = "PENDIENTE"; qs("#vence-deuda").value = ""; qs("#genera-deuda").checked = false;
     qs("#save-msg").textContent = ""; qs("#save-msg").className = "msg";
-    // bloquear campos de entrega
-    ["p-efectivo","p-yape","p-transferencia","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => { const el = qs("#"+id); if (el) el.disabled = true; });
-    const save = qs("#btn-save"); save.textContent = "Registrar cobro de deuda"; save.disabled = !state.puedeCobrarDeudas;
+    applyDetailMode();
     updateCalcs();
     state.debtsByClient[d.idCliente] = { saldoTotal: d.saldoTotal, items: d.deudas || [] };
     renderDebts(state.debtsByClient[d.idCliente]);
@@ -275,11 +300,17 @@
 
   function renderDebts(data) {
     const items = (data && data.items || []).filter(d => Number(d.saldoPendiente || 0) > 0);
+    const isDebtMode = state.returnTo === "deudores";
+    const canDebt = !!state.puedeCobrarDeudas;
+    const disabled = isDebtMode ? !canDebt : false;
+
     if (!items.length) {
       qs("#debts-list").innerHTML = `<span class="muted">Sin deudas pendientes. Saldo: ${money(0)}</span>`;
       qs("#cobro-deudas-list").innerHTML = `<span class="muted">Sin deudas pendientes.</span>`;
+      qs("#calc-cobro-deuda").textContent = money(0);
       return;
     }
+
     qs("#debts-list").innerHTML = items.map(d => `
       <div class="debt-row">
         <div class="row1"><strong>${esc(d.idDeuda || "Deuda")}</strong><strong>${money(d.saldoPendiente)}</strong></div>
@@ -288,13 +319,31 @@
 
     qs("#cobro-deudas-list").innerHTML = items.map(d => `
       <div class="debt-row" data-deuda="${esc(d.idDeuda)}">
-        <div class="row1"><strong>${esc(d.idDeuda)}</strong><span>Saldo: ${money(d.saldoPendiente)}</span></div>
-        <div class="row2">Vence: ${esc(d.fechaVencimiento || "-")}</div>
+        <div class="row1"><strong>${esc(d.idDeuda)}</strong><span>Saldo pendiente: ${money(d.saldoPendiente)}</span></div>
+        <div class="row2">Vence: ${esc(d.fechaVencimiento || "-")} · Estado: ${esc(d.estado || "-")}</div>
         <div class="debt-pay">
-          <label class="check"><input type="checkbox" class="cd-sel" data-id="${esc(d.idDeuda)}" /> Abonar esta deuda</label>
-          <input type="number" step="0.01" min="0" max="${esc(d.saldoPendiente)}" class="cd-monto" data-id="${esc(d.idDeuda)}" data-max="${esc(d.saldoPendiente)}" placeholder="Monto" />
+          <label class="check"><input type="checkbox" class="cd-sel" data-id="${esc(d.idDeuda)}" ${disabled ? "disabled" : ""} /> Abonar esta deuda</label>
+          <input type="number" step="0.01" min="0" max="${esc(d.saldoPendiente)}" class="cd-monto" data-id="${esc(d.idDeuda)}" data-max="${esc(d.saldoPendiente)}" placeholder="Monto a abonar" ${disabled ? "disabled" : ""} />
         </div>
       </div>`).join("");
+
+    qsa(".cd-sel").forEach(ch => ch.addEventListener("change", (e) => {
+      const id = e.target.getAttribute("data-id");
+      const inp = qs(`.cd-monto[data-id="${id}"]`);
+      if (!inp) return;
+      if (e.target.checked && !inp.value) inp.value = inp.getAttribute("data-max") || "";
+      if (!e.target.checked) inp.value = "";
+      updateCalcs();
+    }));
+    qsa(".cd-monto").forEach(inp => inp.addEventListener("input", (e) => {
+      const id = e.target.getAttribute("data-id");
+      const ch = qs(`.cd-sel[data-id="${id}"]`);
+      const max = num(e.target.getAttribute("data-max"));
+      let v = num(e.target.value);
+      if (v > max) { v = max; e.target.value = max; }
+      if (ch) ch.checked = v > 0;
+      updateCalcs();
+    }));
   }
 
   function updateCalcs() {
@@ -311,19 +360,10 @@
     qs("#calc-cobro-deuda").textContent = money(cobro);
   }
 
-  function applyRouteLockUI() {
-    const locked = routeIsFinalizada() && state.returnTo !== "deudores";
-    ["p-efectivo","p-yape","p-transferencia","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => {
-      const el = qs(`#${id}`); if (el) el.disabled = locked;
-    });
-    const save = qs("#btn-save");
-    if (save) save.textContent = state.returnTo === "deudores" ? "Registrar cobro de deuda" : (locked ? "Ruta finalizada" : "Guardar y sincronizar");
-    if (save) save.disabled = locked && state.returnTo !== "deudores" ? true : save.disabled;
-  }
-
   async function saveCurrent() {
     const e = state.current; const r = state.route;
-    if (!e || !r) return;
+    if (!e) return;
+    if (state.returnTo !== "deudores" && !r) return;
     const msg = qs("#save-msg"); msg.textContent = ""; msg.className = "msg";
     if (routeIsFinalizada() && state.returnTo !== "deudores") {
       msg.textContent = "La ruta está finalizada. No se pueden modificar cobros de entregas."; msg.classList.add("err"); return;
