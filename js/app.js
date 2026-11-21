@@ -280,7 +280,7 @@
     qs("#detail-meta").textContent = `${d.direccion || d.zona || ""}${d.direccion || d.zona ? " · " : ""}ID: ${d.idCliente} · Saldo pendiente: ${money(d.saldoTotal)}`;
     qs("#detail-monto").textContent = money(0);
     qs("#detail-estado").innerHTML = badgeEstado("CREDITO");
-    ["p-efectivo","p-yape","p-transferencia","cd-efectivo","cd-yape","cd-transferencia"].forEach(id => { const el = qs("#"+id); if (el) el.value = ""; });
+    ["p-efectivo","p-yape","p-transferencia","p-efectivo-recibido","cd-efectivo","cd-yape","cd-transferencia","cd-efectivo-recibido"].forEach(id => { const el = qs("#"+id); if (el) el.value = ""; });
     qs("#observacion").value = ""; qs("#estado-entrega").value = "PENDIENTE"; qs("#vence-deuda").value = ""; qs("#genera-deuda").checked = false;
     qs("#save-msg").textContent = ""; qs("#save-msg").className = "msg";
     state.debtsByClient[d.idCliente] = { saldoTotal: d.saldoTotal, items: d.deudas || [] };
@@ -355,11 +355,15 @@
 
     qs("#cobro-deudas-list").innerHTML = items.map(d => `
       <div class="debt-row" data-deuda="${esc(d.idDeuda)}">
-        <div class="row1"><strong>Deuda ${esc(d.idDeuda)}</strong><span class="badge st-CREDITO">Saldo: ${money(d.saldoPendiente)}</span></div>
+        <div class="row1"><strong>Deuda ${esc(d.idDeuda)}</strong><span class="badge st-CREDITO" id="cd-badge-${esc(d.idDeuda)}">Saldo: ${money(d.saldoPendiente)}</span></div>
         <div class="row2">Vence: ${esc(d.fechaVencimiento || "-")}</div>
         <div class="debt-pay">
           <label class="check"><input type="checkbox" class="cd-sel" data-id="${esc(d.idDeuda)}" ${disabled ? "disabled" : ""} /> Abonar</label>
           <input type="number" step="0.01" min="0" max="${esc(d.saldoPendiente)}" class="cd-monto" data-id="${esc(d.idDeuda)}" data-max="${esc(d.saldoPendiente)}" placeholder="Monto" ${disabled ? "disabled" : ""} />
+        </div>
+        <div class="debt-live" id="cd-live-${esc(d.idDeuda)}">
+          <div>Abonando: <strong id="cd-abonando-${esc(d.idDeuda)}">S/ 0.00</strong></div>
+          <div>Saldo restante: <strong id="cd-restante-${esc(d.idDeuda)}" class="text-danger">${money(d.saldoPendiente)}</strong></div>
         </div>
       </div>`).join("");
 
@@ -378,49 +382,96 @@
       let v = num(e.target.value);
       if (v > max) { v = max; e.target.value = max; }
       if (ch) ch.checked = v > 0;
-      // si abona exactamente una deuda seleccionada, autocompletar desglose para cuadrar rápido
-      const selected = qsa(".cd-sel:checked");
-      if (selected.length === 1 && selected[0].getAttribute("data-id") === id) {
-        const totalSel = roundMoney(Math.min(v, max));
-        const ef = qs("#cd-efectivo"), ya = qs("#cd-yape"), tr = qs("#cd-transferencia");
-        const hasManual = num(ef.value)+num(ya.value)+num(tr.value) > 0;
-        if (!hasManual) ef.value = totalSel ? totalSel.toFixed(2) : "";
-      }
       updateCalcs();
     }));
+    updateCalcs();
   }
 
   function updateCalcs() {
     const e = state.current || {};
     const monto = roundMoney(num(e.montoCobrar != null ? e.montoCobrar : e.totMont));
-    const total = roundMoney(num(qs("#p-efectivo").value) + num(qs("#p-yape").value) + num(qs("#p-transferencia").value));
+    const ef = num(qs("#p-efectivo").value);
+    const ya = num(qs("#p-yape").value);
+    const tr = num(qs("#p-transferencia").value);
+    const total = roundMoney(ef + ya + tr);
     const saldo = Math.max(0, roundMoney(monto - total));
+    const cambio = Math.max(0, roundMoney(total - monto));
+
     const calcMonto = qs("#calc-monto");
     if (calcMonto) calcMonto.textContent = money(monto);
     qs("#calc-total").textContent = money(total);
     const saldoEl = qs("#calc-saldo");
     saldoEl.textContent = money(saldo);
     saldoEl.className = saldo > 0 ? "text-danger" : "text-success";
+
+    const recibido = num(qs("#p-recibido") && qs("#p-recibido").value);
+    const vueltoWrap = qs("#calc-vuelto-wrap");
+    const vueltoEl = qs("#calc-vuelto");
+    if (vueltoWrap && vueltoEl) {
+      const showVuelto = recibido > 0;
+      const vuelto = recibido > 0 ? roundMoney(recibido - monto) : 0;
+      vueltoWrap.classList.toggle("hidden", !showVuelto);
+      if (vuelto >= 0) {
+        vueltoWrap.className = "text-success";
+        vueltoEl.textContent = money(vuelto);
+        vueltoWrap.innerHTML = `Cambio a devolver: <strong id="calc-vuelto">${money(vuelto)}</strong>`;
+      } else {
+        vueltoWrap.className = "text-danger";
+        vueltoWrap.innerHTML = `Falta completar el efectivo: <strong id="calc-vuelto">${money(Math.abs(vuelto))}</strong>`;
+      }
+    }
+
     qs("#credito-fields").classList.toggle("hidden", !(qs("#genera-deuda").checked && saldo > 0));
     if (saldo <= 0) qs("#genera-deuda").checked = false;
 
-    const selTotal = roundMoney(qsa(".cd-sel:checked").reduce((acc, ch) => {
-      const id = ch.getAttribute("data-id");
-      const inp = qs(`.cd-monto[data-id="${id}"]`);
-      const max = num(inp && inp.getAttribute("data-max"));
-      let v = num(inp && inp.value);
-      if (v <= 0) v = max;
-      return acc + Math.min(v, max);
-    }, 0));
-    const cobro = roundMoney(num(qs("#cd-efectivo").value) + num(qs("#cd-yape").value) + num(qs("#cd-transferencia").value));
+    // Deudas: calcular por monto ingresado (aunque no se marque checkbox), marcar auto si hay monto
+    let selTotal = 0;
+    qsa(".cd-monto").forEach(inp => {
+      const id = inp.getAttribute("data-id");
+      const max = num(inp.getAttribute("data-max"));
+      let v = roundMoney(num(inp.value));
+      if (v > max) { v = max; inp.value = max.toFixed(2); }
+      if (v < 0) { v = 0; inp.value = ""; }
+      const ch = qs(`.cd-sel[data-id="${id}"]`);
+      if (ch) ch.checked = v > 0;
+      const restante = Math.max(0, roundMoney(max - v));
+      selTotal = roundMoney(selTotal + v);
+      const abonandoEl = qs(`#cd-abonando-${id}`);
+      const restanteEl = qs(`#cd-restante-${id}`);
+      const badgeEl = qs(`#cd-badge-${id}`);
+      if (abonandoEl) abonandoEl.textContent = money(v);
+      if (restanteEl) { restanteEl.textContent = money(restante); restanteEl.className = restante > 0 ? "text-danger" : "text-success"; }
+      if (badgeEl) badgeEl.textContent = `Saldo: ${money(restante)}`;
+    });
+
+    const cdEf = num(qs("#cd-efectivo").value);
+    const cdYa = num(qs("#cd-yape").value);
+    const cdTr = num(qs("#cd-transferencia").value);
+    const cobro = roundMoney(cdEf + cdYa + cdTr);
     const faltaCuadrar = Math.max(0, roundMoney(selTotal - cobro));
+    const exceso = Math.max(0, roundMoney(cobro - selTotal));
     const selEl = qs("#calc-deuda-seleccionado");
     if (selEl) selEl.textContent = money(selTotal);
     qs("#calc-cobro-deuda").textContent = money(cobro);
     const faltaEl = qs("#calc-deuda-falta");
     if (faltaEl) {
       faltaEl.textContent = money(faltaCuadrar);
-      faltaEl.className = faltaCuadrar > 0 ? "text-danger" : "text-success";
+      faltaEl.className = (faltaCuadrar > 0 || exceso > 0) ? "text-danger" : "text-success";
+    }
+
+    const cdRecibido = num(qs("#cd-recibido") && qs("#cd-recibido").value);
+    const cdVueltoWrap = qs("#calc-deuda-vuelto-wrap");
+    if (cdVueltoWrap) {
+      const show = cdRecibido > 0;
+      const vuelto = cdRecibido > 0 ? roundMoney(cdRecibido - selTotal) : 0;
+      cdVueltoWrap.classList.toggle("hidden", !show);
+      if (vuelto >= 0) {
+        cdVueltoWrap.className = "text-success";
+        cdVueltoWrap.innerHTML = `Cambio a devolver: <strong id="calc-deuda-vuelto">${money(vuelto)}</strong>`;
+      } else {
+        cdVueltoWrap.className = "text-danger";
+        cdVueltoWrap.innerHTML = `Falta completar el efectivo: <strong id="calc-deuda-vuelto">${money(Math.abs(vuelto))}</strong>`;
+      }
     }
   }
 
@@ -440,14 +491,12 @@
     const vence = qs("#vence-deuda").value;
     if (generaDeuda && !vence) { msg.textContent = "Selecciona la fecha de vencimiento para la deuda."; msg.classList.add("err"); return; }
 
-    // cobro deudas seleccionadas
-    const seleccion = qsa(".cd-sel:checked").map(ch => {
-      const idDeuda = ch.getAttribute("data-id");
-      const input = qs(`.cd-monto[data-id="${idDeuda}"]`);
-      const max = num(input && input.getAttribute("data-max"));
-      let montoAbono = num(input && input.value);
-      if (montoAbono <= 0) montoAbono = max; // si marcado y sin monto, abonar saldo completo
-      montoAbono = Math.min(montoAbono, max);
+    // cobro deudas: toma montos ingresados (no depende solo del checkbox)
+    const seleccion = qsa(".cd-monto").map(input => {
+      const idDeuda = input.getAttribute("data-id");
+      const max = num(input.getAttribute("data-max"));
+      let montoAbono = roundMoney(num(input.value));
+      if (montoAbono > max) montoAbono = max;
       return { idDeuda, monto: +montoAbono.toFixed(2) };
     }).filter(x => x.monto > 0);
     const totalAbonoSel = +seleccion.reduce((a,b)=>a+b.monto,0).toFixed(2);
@@ -543,9 +592,11 @@
     qs("#search-deudores").addEventListener("input", renderDeudores);
     qs("#btn-back").addEventListener("click", () => setView(state.returnTo === "deudores" ? "deudores" : "route"));
     qs("#search").addEventListener("input", renderList);
-    ["p-efectivo","p-yape","p-transferencia","genera-deuda","cd-efectivo","cd-yape","cd-transferencia"].forEach(id => {
-      qs(`#${id}`).addEventListener("input", updateCalcs);
-      qs(`#${id}`).addEventListener("change", updateCalcs);
+    ["p-efectivo","p-yape","p-transferencia","p-recibido","genera-deuda","cd-efectivo","cd-yape","cd-transferencia","cd-recibido"].forEach(id => {
+      const el = qs(`#${id}`);
+      if (!el) return;
+      el.addEventListener("input", updateCalcs);
+      el.addEventListener("change", updateCalcs);
     });
     qs("#btn-save").addEventListener("click", saveCurrent);
 

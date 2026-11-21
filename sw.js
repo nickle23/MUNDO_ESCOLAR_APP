@@ -1,7 +1,7 @@
 // Service worker PWA - auto-actualización para repartidores (sin borrar datos manualmente)
 // Las llamadas al API no se cachean.
 
-const CACHE = "me-rutas-v12";
+const CACHE = "me-rutas-v15";
 const ASSETS = [
   "./",
   "./index.html",

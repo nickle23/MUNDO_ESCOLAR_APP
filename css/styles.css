@@ -35,6 +35,10 @@ h1 { font-size: 22px; } h2 { font-size: 20px; } h3 { font-size: 16px; }
 .msg.err { color: var(--danger); }
 .text-danger { color: var(--danger); }
 .text-success { color: var(--success); }
+.debt-live { margin-top:8px; font-size:13px; background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:8px 10px; display:grid; gap:2px; }
+.calc-row-input { margin-top:6px; padding-top:8px; border-top:1px dashed #d1d5db; }
+.calc-row-input label { margin:0 0 4px; font-size:12px; }
+.calc-row-input input { padding:8px 10px; font-size:15px; }
 
 .debt-alert { margin-top: 8px; padding: 10px 12px; border-radius: 10px; font-weight: 700; font-size: 14px; }
 .debt-alert.ok { color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; }

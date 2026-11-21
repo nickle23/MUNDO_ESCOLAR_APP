@@ -117,6 +117,11 @@
           <div>Monto a cobrar: <strong id="calc-monto">S/ 0.00</strong></div>
           <div>Total pagado hoy: <strong id="calc-total">S/ 0.00</strong></div>
           <div>Falta por cobrar: <strong id="calc-saldo" class="text-danger">S/ 0.00</strong></div>
+          <div class="calc-row-input">
+            <label for="p-recibido">Cliente paga con (efectivo)</label>
+            <input id="p-recibido" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Ej: 200" />
+          </div>
+          <div id="calc-vuelto-wrap" class="hidden text-success">Cambio a devolver: <strong id="calc-vuelto">S/ 0.00</strong></div>
         </div>
       </div>
 
@@ -151,9 +156,14 @@
             </div>
           </div>
           <div class="calc mt">
-            <div>Total seleccionado a abonar: <strong id="calc-deuda-seleccionado">S/ 0.00</strong></div>
-            <div>Desglose ingresado: <strong id="calc-cobro-deuda">S/ 0.00</strong></div>
+            <div>Total a abonar: <strong id="calc-deuda-seleccionado">S/ 0.00</strong></div>
+            <div>Total ingresado: <strong id="calc-cobro-deuda">S/ 0.00</strong></div>
             <div>Falta por cuadrar: <strong id="calc-deuda-falta">S/ 0.00</strong></div>
+            <div class="calc-row-input">
+              <label for="cd-recibido">Cliente paga con (efectivo)</label>
+              <input id="cd-recibido" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Ej: 20" />
+            </div>
+            <div id="calc-deuda-vuelto-wrap" class="hidden text-success">Cambio a devolver: <strong id="calc-deuda-vuelto">S/ 0.00</strong></div>
           </div>
         </div>
       </div>
