@@ -62,9 +62,11 @@
 
   function logout() {
     state.session = null; state.route = null; state.entregas = []; state.current = null; state.debtsByClient = {}; state.deudores = []; state.puedeCobrarDeudas = false; state.returnTo = "route"; state.routeHistory = []; state.viewingHistory = false; state.activeRouteId = null;
-    saveSession();
-    qs("#pin").value = "";
-    qs("#history-panel").classList.add("hidden");
+    try { saveSession(); } catch (e) {}
+    const pin = qs("#pin"); if (pin) pin.value = "";
+    const hist = qs("#history-panel"); if (hist) hist.classList.add("hidden");
+    const search = qs("#search"); if (search) search.value = "";
+    qs("#subtitle").textContent = "Rutas y Cobranza";
     setView("login");
   }
 
@@ -97,6 +99,44 @@
     }
   }
 
+  function getRouteTotals() {
+    const t = { ef:0, ya:0, tr:0, cobroEf:0, cobroYa:0, cobroTr:0 };
+    state.entregas.forEach(e => {
+      t.ef += num(e.efectivo); t.ya += num(e.yape); t.tr += num(e.transferencia);
+      t.cobroEf += num(e.cobroDeudaEfectivo); t.cobroYa += num(e.cobroDeudaYape); t.cobroTr += num(e.cobroDeudaTransferencia);
+    });
+    const r = (v) => roundMoney(v);
+    t.ef=r(t.ef); t.ya=r(t.ya); t.tr=r(t.tr);
+    t.cobroEf=r(t.cobroEf); t.cobroYa=r(t.cobroYa); t.cobroTr=r(t.cobroTr);
+    t.entregasTotal = r(t.ef+t.ya+t.tr);
+    t.cobroTotal = r(t.cobroEf+t.cobroYa+t.cobroTr);
+    t.totalEf = r(t.ef+t.cobroEf); t.totalYa = r(t.ya+t.cobroYa); t.totalTr = r(t.tr+t.cobroTr);
+    t.general = r(t.totalEf+t.totalYa+t.totalTr);
+    return t;
+  }
+
+  function renderRouteTotals() {
+    const box = qs("#route-totals");
+    if (!box) return;
+    if (!state.route) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+    const t = getRouteTotals();
+    const finalizada = routeIsFinalizada();
+    const viewing = isViewingHistory();
+    box.classList.remove("hidden");
+    box.innerHTML = `
+      <div class="totals-title">${viewing ? "Resumen de lo recaudado (ruta anterior)" : (finalizada ? "Total recaudado (ruta finalizada)" : "Recaudado hasta ahora")}</div>
+      <div class="totals-grid">
+        <div class="totals-cell"><span class="k">Efectivo</span><strong>${money(t.totalEf)}</strong></div>
+        <div class="totals-cell"><span class="k">Yape</span><strong>${money(t.totalYa)}</strong></div>
+        <div class="totals-cell"><span class="k">Transferencia</span><strong>${money(t.totalTr)}</strong></div>
+        <div class="totals-cell total"><span class="k">TOTAL GENERAL</span><strong>${money(t.general)}</strong></div>
+      </div>
+      <div class="totals-sub">
+        <span>Entregas: Efectivo ${money(t.ef)} · Yape ${money(t.ya)} · Transf. ${money(t.tr)} = <strong>${money(t.entregasTotal)}</strong></span>
+        <span>Cobro deudas: Efectivo ${money(t.cobroEf)} · Yape ${money(t.cobroYa)} · Transf. ${money(t.cobroTr)} = <strong>${money(t.cobroTotal)}</strong></span>
+      </div>`;
+  }
+
   function renderRoute() {
     const r = state.route;
     qs("#route-conductor").textContent = r ? (r.conductor || state.session.usuario.nombre || "-") : (state.session.usuario.nombre || "-");
@@ -127,6 +167,7 @@
       <span class="pill">Crédito/Parcial: ${creditos}</span>
       <span class="pill">Pendientes: ${pendientes < 0 ? 0 : pendientes}</span>`;
 
+    renderRouteTotals();
     renderList();
   }
 
@@ -137,7 +178,15 @@
       return `${e.cliente||""} ${e.direccion||""}`.toLowerCase().includes(q);
     });
     const list = qs("#route-list");
-    qs("#route-empty").classList.toggle("hidden", items.length !== 0);
+    const empty = qs("#route-empty");
+    if (empty) {
+      if (items.length === 0) {
+        empty.textContent = state.entregas.length === 0 ? "Hoy no se te asignaron entregas." : "No hay resultados para tu búsqueda.";
+        empty.classList.remove("hidden");
+      } else {
+        empty.classList.add("hidden");
+      }
+    }
     list.innerHTML = items.map(e => {
       const monto = e.montoCobrar != null ? e.montoCobrar : e.totMont;
       const pagado = e.totalPagadoHoy != null ? e.totalPagadoHoy : 0;
@@ -230,12 +279,14 @@
 
   async function finalizarRutaActual() {
     if (!state.route) return;
-    if (!confirm("¿Finalizar la ruta? Después de finalizar no podrás modificar cobros de entregas.")) return;
+    const t = getRouteTotals();
+    const resumen = `Efectivo: ${money(t.totalEf)}\nYape: ${money(t.totalYa)}\nTransferencia: ${money(t.totalTr)}\nTOTAL GENERAL: ${money(t.general)}`;
+    if (!confirm(`¿Finalizar la ruta?\n\nTotal recaudado:\n${resumen}\n\nDespués de finalizar no podrás modificar cobros de entregas.`)) return;
     try {
       showLoading(true);
       const res = await API.finalizarRuta({ pin: state.session.pin, ruta: { idRuta: state.route.idRuta } });
       if (!res || !res.ok) throw new Error(res && res.error || "No se pudo finalizar la ruta.");
-      toast("Ruta finalizada");
+      toast(`Ruta finalizada. Total: ${money(t.general)}`, 4000);
       await loadRoute();
     } catch (e) {
       toast(e.message || String(e), 4000);

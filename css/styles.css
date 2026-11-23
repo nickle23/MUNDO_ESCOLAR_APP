@@ -47,6 +47,18 @@ h1 { font-size: 22px; } h2 { font-size: 20px; } h3 { font-size: 16px; }
 .history-item .h-sub { color:var(--muted); font-size:12px; margin-top:2px; }
 .history-item.active { border-color:#93c5fd; background:#eff6ff; }
 
+.route-totals { margin-top:10px; padding:12px; border:1px solid #bfdbfe; background:#eff6ff; border-radius:10px; }
+.totals-title { font-weight:800; font-size:13px; color:#1e3a8a; margin-bottom:8px; text-transform:uppercase; letter-spacing:.02em; }
+.totals-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
+.totals-cell { background:#fff; border:1px solid #dbeafe; border-radius:8px; padding:8px; text-align:center; }
+.totals-cell .k { display:block; font-size:11px; color:var(--muted); margin-bottom:2px; }
+.totals-cell strong { font-size:15px; color:#111827; }
+.totals-cell.total { background:#1d4ed8; border-color:#1d4ed8; }
+.totals-cell.total .k, .totals-cell.total strong { color:#fff; }
+.totals-sub { margin-top:8px; display:flex; flex-direction:column; gap:2px; font-size:12px; color:#334155; }
+.totals-sub strong { color:#0f172a; }
+@media (max-width: 520px) { .totals-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+
 .debt-alert { margin-top: 8px; padding: 10px 12px; border-radius: 10px; font-weight: 700; font-size: 14px; }
 .debt-alert.ok { color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; }
 .debt-alert.err { color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; }
