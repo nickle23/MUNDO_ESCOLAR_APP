@@ -2,24 +2,10 @@
  * Gestión de rutas diarias - Mundo Escolar
  */
 
-function getRouteToday(params) {
-  var user = requireAuth_(params);
-  var fecha = toDateStr(params.fecha) || todayStr();
-  // Seguridad: usar siempre la identidad del usuario autenticado (ignorar conductor/idUsuario enviados por cliente)
-  var conductor = String(user.conductorHoja || user.nombre || '').trim();
-  var idUsuario = String(user.id || '').trim();
-
-  var routeInfo = findRouteInfo_(fecha, conductor, idUsuario);
-  if (!routeInfo) {
-    return { ok: false, error: 'No tienes una ruta asignada para ' + fecha + '. Si crees que es un error, verifica INDICE_RUTAS (fecha, conductor/usuario y estado ABIERTA).' };
-  }
-
-  // Verificación adicional: la ruta debe pertenecer al usuario autenticado
-  assertRouteAssignedToUser_(routeInfo, user);
-
+function buildRoutePayload_(routeInfo, user) {
   var ss = SpreadsheetApp.openById(routeInfo.spreadsheetId);
   var sh = ss.getSheetByName(routeInfo.hoja);
-  if (!sh) return { ok: false, error: 'No se encontró la hoja de ruta: ' + routeInfo.hoja };
+  if (!sh) throw new Error('No se encontró la hoja de ruta: ' + routeInfo.hoja);
 
   var hmap = headerMap_(sh, 3);
   var c = routeCols_(hmap);
@@ -34,73 +20,101 @@ function getRouteToday(params) {
       var row = values[i];
       var cliente = String(row[c.CLIENTE - 1] || '').trim();
       var direccion = String(row[c.DIRECCION - 1] || '').trim();
-      var idEntrega = String(row[c.ID_ENTREGA - 1] || '').trim();
-      var totMont = row[c.TOT_MONT - 1];
-      // skip completely empty rows
-      var hasData = cliente || direccion || toNum(totMont) > 0 || String(row[c.BO - 1] || '').trim();
+      var totMont = toNum(row[c.TOT_MONT - 1]);
+      var hasData = cliente || direccion || totMont > 0 || String(row[c.BO - 1] || '').trim();
       if (!hasData) continue;
       var idCliente = String(row[c.ID_CLIENTE - 1] || '').trim();
+      var idEntrega = String(row[c.ID_ENTREGA - 1] || '').trim();
       var montoCobrar = toNum(row[c.MONTO_COBRAR - 1]);
-      if (montoCobrar === 0) montoCobrar = toNum(totMont);
-      var ent = {
+      if (montoCobrar === 0) montoCobrar = totMont;
+      entregas.push({
         row: i + 4,
-        direccion: direccion,
-        cliente: cliente,
+        direccion: direccion, cliente: cliente,
         bo: row[c.BO - 1], a1: row[c.A1 - 1], a2: row[c.A2 - 1], a3: row[c.A3 - 1],
-        totB: row[c.TOT_B - 1],
-        totMont: totMont,
-        vend: String(row[c.VEND - 1] || ''),
-        efectResumen: row[c.EFECT - 1],
-        yapTrnsfResumen: row[c.YAP_TRNSF - 1],
+        totB: row[c.TOT_B - 1], totMont: totMont, vend: String(row[c.VEND - 1] || ''),
+        efectResumen: row[c.EFECT - 1], yapTrnsfResumen: row[c.YAP_TRNSF - 1],
         observacion: String(row[c.OBSERVACION - 1] || ''),
-        idCliente: idCliente,
-        idEntrega: idEntrega || ('ROW_' + (i + 4)),
-        montoCobrar: montoCobrar,
-        efectivo: toNum(row[c.EFECTIVO - 1]),
-        yape: toNum(row[c.YAPE - 1]),
-        transferencia: toNum(row[c.TRANSFERENCIA - 1]),
-        totalPagadoHoy: toNum(row[c.TOTAL_PAGADO_HOY - 1]),
-        saldoEntregaHoy: toNum(row[c.SALDO_ENTREGA_HOY - 1]),
-        deudaGeneradaHoy: toNum(row[c.DEUDA_GENERADA_HOY - 1]),
-        venceDeuda: toDateStr(row[c.VENCE_DEUDA - 1]),
+        idCliente: idCliente, idEntrega: idEntrega || ('ROW_' + (i + 4)), montoCobrar: montoCobrar,
+        efectivo: toNum(row[c.EFECTIVO - 1]), yape: toNum(row[c.YAPE - 1]), transferencia: toNum(row[c.TRANSFERENCIA - 1]),
+        totalPagadoHoy: toNum(row[c.TOTAL_PAGADO_HOY - 1]), saldoEntregaHoy: toNum(row[c.SALDO_ENTREGA_HOY - 1]),
+        deudaGeneradaHoy: toNum(row[c.DEUDA_GENERADA_HOY - 1]), venceDeuda: toDateStr(row[c.VENCE_DEUDA - 1]),
         cobroDeudaAnterior: toNum(row[c.COBRO_DEUDA_ANTERIOR - 1]),
         cobroDeudaEfectivo: toNum(row[c.COBRO_DEUDA_EFECTIVO - 1]),
         cobroDeudaYape: toNum(row[c.COBRO_DEUDA_YAPE - 1]),
         cobroDeudaTransferencia: toNum(row[c.COBRO_DEUDA_TRANSFERENCIA - 1]),
         detalleCobroDeuda: String(row[c.DETALLE_COBRO_DEUDA - 1] || ''),
         estadoEntrega: String(row[c.ESTADO_ENTREGA - 1] || 'PENDIENTE').toUpperCase(),
-        ultimaEdicion: row[c.ULTIMA_EDICION - 1],
-        editadoPor: String(row[c.EDITADO_POR - 1] || ''),
+        ultimaEdicion: row[c.ULTIMA_EDICION - 1], editadoPor: String(row[c.EDITADO_POR - 1] || ''),
         idDeudaGenerada: String(row[c.ID_DEUDA_GENERADA - 1] || ''),
-      };
-      entregas.push(ent);
+      });
       if (idCliente) clientIds[idCliente] = true;
     }
   }
 
-  // Prefetch debts for clients in this route
-  var deudasPorCliente = {};
   var ids = Object.keys(clientIds);
-  if (ids.length) {
-    deudasPorCliente = getDebtsForClients_(ids);
-  }
-
+  var deudasPorCliente = ids.length ? getDebtsForClients_(ids) : {};
   return {
     ok: true,
     usuario: user,
     ruta: {
-      idRuta: routeInfo.idRuta,
-      fecha: routeInfo.fecha,
-      conductor: routeInfo.conductor,
-      idUsuario: routeInfo.idUsuario,
-      spreadsheetId: routeInfo.spreadsheetId,
-      spreadsheetUrl: routeInfo.spreadsheetUrl,
-      hoja: routeInfo.hoja,
-      estado: routeInfo.estado,
+      idRuta: routeInfo.idRuta, fecha: routeInfo.fecha, conductor: routeInfo.conductor, idUsuario: routeInfo.idUsuario,
+      spreadsheetId: routeInfo.spreadsheetId, spreadsheetUrl: routeInfo.spreadsheetUrl, hoja: routeInfo.hoja, estado: routeInfo.estado,
     },
     entregas: entregas,
     deudasPorCliente: deudasPorCliente,
   };
+}
+
+function getRouteToday(params) {
+  var user = requireAuth_(params);
+  var fecha = toDateStr(params.fecha) || todayStr();
+  var conductor = String(user.conductorHoja || user.nombre || '').trim();
+  var idUsuario = String(user.id || '').trim();
+
+  var routeInfo = findRouteInfo_(fecha, conductor, idUsuario);
+  if (!routeInfo) {
+    return { ok: false, error: 'No tienes una ruta asignada para ' + fecha + '. Si crees que es un error, verifica INDICE_RUTAS (fecha, conductor/usuario y estado ABIERTA).' };
+  }
+  assertRouteAssignedToUser_(routeInfo, user);
+  return buildRoutePayload_(routeInfo, user);
+}
+
+function getRouteById(payload) {
+  var user = requireAuth_(payload);
+  var idRuta = String((payload.ruta && payload.ruta.idRuta) || payload.idRuta || '').trim();
+  if (!idRuta) throw new Error('Falta idRuta.');
+  var routeInfo = getRouteInfoById_(idRuta);
+  if (!routeInfo) throw new Error('Ruta no encontrada en INDICE_RUTAS.');
+  assertRouteAssignedToUser_(routeInfo, user);
+  return buildRoutePayload_(routeInfo, user);
+}
+
+function listRoutes(params) {
+  var user = requireAuth_(params);
+  var limit = Math.max(1, Math.min(30, Number(params.limit || 15)));
+  var master = getMaster_();
+  var sh = getSheet_(master, 'INDICE_RUTAS');
+  var last = sh.getLastRow();
+  if (last < 2) return { ok: true, rutas: [] };
+  var data = sh.getRange(2, 1, last - 1, 11).getValues();
+  var userId = String(user.id || '').trim();
+  var userConductor = normalizeName(user.conductorHoja || user.nombre || '');
+  var rutas = [];
+  for (var i = 0; i < data.length; i++) {
+    var r = data[i];
+    var routeInfo = {
+      idRuta: String(r[0] || ''), fecha: toDateStr(r[1]), conductor: String(r[2] || ''), idUsuario: String(r[3] || '').trim(),
+      spreadsheetId: String(r[4] || ''), hoja: String(r[6] || ''), estado: String(r[7] || '')
+    };
+    if (normalizeName(routeInfo.estado) === 'ANULADA') continue;
+    var matchUser = userId && routeInfo.idUsuario && routeInfo.idUsuario === userId;
+    var matchCond = !routeInfo.idUsuario && userConductor && normalizeName(routeInfo.conductor) === userConductor;
+    if (!(matchUser || matchCond)) continue;
+    rutas.push(routeInfo);
+  }
+  rutas.sort(function(a,b){ return String(b.fecha||'').localeCompare(String(a.fecha||'')); });
+  rutas = rutas.slice(0, limit);
+  return { ok: true, rutas: rutas };
 }
 
 function findRouteInfo_(fecha, conductor, idUsuario) {
@@ -221,6 +235,7 @@ function saveEntrega(payload) {
   var estadoRuta = normalizeName(routeInfo.estado);
   if (estadoRuta === 'ANULADA') throw new Error('Esta ruta está anulada y no permite modificaciones.');
   if (estadoRuta === 'FINALIZADA' || estadoRuta === 'CERRADA') throw new Error('Esta ruta ya fue finalizada. No se pueden modificar cobros de entregas.');
+  if (toDateStr(routeInfo.fecha) !== todayStr()) throw new Error('Solo se puede editar la ruta del día actual. Las rutas anteriores son solo de consulta.');
 
   var idEntrega = String(entIn.idEntrega || '').trim();
   var rowNum = Number(entIn.row || 0);

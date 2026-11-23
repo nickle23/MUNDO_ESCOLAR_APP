@@ -3,14 +3,17 @@
   const API = window.API;
 
   const state = {
-    session: null, // {usuario, token?}
-    route: null,   // {idRuta, fecha, conductor, hoja, spreadsheetId, ...}
+    session: null,
+    route: null,
     entregas: [],
-    current: null, // entrega seleccionada
-    debtsByClient: {}, // cache
+    current: null,
+    debtsByClient: {},
     deudores: [],
     puedeCobrarDeudas: false,
     returnTo: "route",
+    routeHistory: [],
+    viewingHistory: false,
+    activeRouteId: null,
   };
 
   function setView(name) {
@@ -23,6 +26,10 @@
 
   function routeIsFinalizada() {
     return !!(state.route && ["FINALIZADA","CERRADA"].includes(String(state.route.estado || "").toUpperCase()));
+  }
+
+  function isViewingHistory() {
+    return !!state.viewingHistory && !!state.route && !!state.activeRouteId && String(state.route.idRuta) !== String(state.activeRouteId);
   }
 
   function saveSession() {
@@ -54,9 +61,10 @@
   }
 
   function logout() {
-    state.session = null; state.route = null; state.entregas = []; state.current = null; state.debtsByClient = {}; state.deudores = []; state.puedeCobrarDeudas = false; state.returnTo = "route";
+    state.session = null; state.route = null; state.entregas = []; state.current = null; state.debtsByClient = {}; state.deudores = []; state.puedeCobrarDeudas = false; state.returnTo = "route"; state.routeHistory = []; state.viewingHistory = false; state.activeRouteId = null;
     saveSession();
     qs("#pin").value = "";
+    qs("#history-panel").classList.add("hidden");
     setView("login");
   }
 
@@ -72,6 +80,8 @@
       state.route = res.ruta || null;
       state.entregas = Array.isArray(res.entregas) ? res.entregas : [];
       if (res.deudasPorCliente) state.debtsByClient = { ...state.debtsByClient, ...res.deudasPorCliente };
+      state.activeRouteId = state.route ? state.route.idRuta : null;
+      state.viewingHistory = false;
       renderRoute();
       setView("route");
       prefetchDebtsForRoute();
@@ -79,6 +89,7 @@
     } catch (e) {
       toast(e.message || String(e), 4000);
       state.route = state.route || null; state.entregas = [];
+      state.viewingHistory = false;
       renderRoute();
       setView("route");
     } finally {
@@ -92,11 +103,19 @@
     qs("#route-fecha").textContent = r ? (r.fecha || todayISO()) : todayISO();
     qs("#route-hoja").textContent = r ? `${r.hoja || ""} (${r.idRuta || ""})` : "No tienes una ruta asignada para hoy. Si crees que es un error, contacta a oficina.";
     const finalizada = routeIsFinalizada();
-    qs("#subtitle").textContent = r ? (finalizada ? "Ruta finalizada" : "Ruta del día") : "Sin ruta";
+    const viewingHistory = isViewingHistory();
+    qs("#subtitle").textContent = r ? (viewingHistory ? "Ruta anterior (solo lectura)" : (finalizada ? "Ruta finalizada" : "Ruta del día")) : "Sin ruta";
     const st = qs("#route-status");
-    if (st) st.textContent = finalizada ? "Ruta finalizada: ya no puedes modificar cobros de entregas. Solo queda disponible la consulta/cobro de deudores (si estás autorizado)." : "";
+    if (st) {
+      if (viewingHistory) st.textContent = "Estás viendo una ruta anterior en modo solo consulta. No se pueden hacer modificaciones.";
+      else if (finalizada) st.textContent = "Ruta finalizada: ya no puedes modificar cobros de entregas. Solo queda disponible la consulta/cobro de deudores (si estás autorizado).";
+      else st.textContent = "";
+    }
     const btnFin = qs("#btn-finalizar-ruta");
-    if (btnFin) { btnFin.disabled = !r || finalizada; btnFin.textContent = finalizada ? "Ruta finalizada" : "Finalizar ruta"; }
+    if (btnFin) {
+      btnFin.disabled = !r || finalizada || viewingHistory;
+      btnFin.textContent = viewingHistory ? "Solo lectura" : (finalizada ? "Ruta finalizada" : "Finalizar ruta");
+    }
 
     const total = state.entregas.length;
     const pagados = state.entregas.filter(e => ["PAGADO","ENTREGADO"].includes((e.estadoEntrega||"").toUpperCase())).length;
@@ -149,8 +168,9 @@
 
   function applyDetailMode() {
     const isDebtMode = state.returnTo === "deudores";
-    const locked = routeIsFinalizada() && !isDebtMode;
-    const canDebt = !!state.puedeCobrarDeudas;
+    const routeReadOnly = isViewingHistory() && !isDebtMode;
+    const locked = (routeIsFinalizada() || routeReadOnly) && !isDebtMode;
+    const canDebt = !!state.puedeCobrarDeudas && !routeReadOnly;
 
     qs("#pago-card").classList.toggle("hidden", isDebtMode);
     qs("#credito-card").classList.toggle("hidden", isDebtMode);
@@ -161,19 +181,21 @@
 
     qs("#cobro-deuda-card").classList.remove("hidden");
     qs("#cobro-title").textContent = isDebtMode ? "Abonar deuda" : "Cobro de deudas anteriores";
-    qs("#cobro-subtitle").textContent = isDebtMode
-      ? "Ingresa el pago y la app lo reparte automáticamente a las deudas más antiguas. Puedes ajustar un monto manualmente."
-      : "Ingresa el pago (Efectivo/Yape/Transferencia). Se reparte automáticamente a las deudas más antiguas; puedes ajustar montos manualmente.";
-    qs("#btn-save").textContent = isDebtMode ? "Registrar cobro de deuda" : (locked ? "Ruta finalizada" : "Guardar y sincronizar");
+    qs("#cobro-subtitle").textContent = routeReadOnly
+      ? "Ruta anterior en solo lectura. No se pueden registrar cobros ni modificar datos."
+      : (isDebtMode
+        ? "Ingresa el pago y la app lo reparte automáticamente a las deudas más antiguas. Puedes ajustar un monto manualmente."
+        : "Ingresa el pago (Efectivo/Yape/Transferencia). Se reparte automáticamente a las deudas más antiguas; puedes ajustar montos manualmente.");
+    qs("#btn-save").textContent = isDebtMode ? "Registrar cobro de deuda" : (routeReadOnly ? "Solo lectura" : (routeIsFinalizada() ? "Ruta finalizada" : "Guardar y sincronizar"));
     qs("#btn-save").disabled = isDebtMode ? !canDebt : locked;
     qs("#cobro-no-deudas").classList.add("hidden");
     qs("#cobro-deuda-body").classList.remove("hidden");
 
-    ["p-efectivo","p-yape","p-transferencia","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => {
+    ["p-efectivo","p-yape","p-transferencia","p-recibido","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => {
       const el = qs(`#${id}`); if (el) el.disabled = !isDebtMode && locked;
     });
-    ["cd-efectivo","cd-yape","cd-transferencia"].forEach(id => {
-      const el = qs(`#${id}`); if (el) el.disabled = isDebtMode ? !canDebt : false;
+    ["cd-efectivo","cd-yape","cd-transferencia","cd-recibido"].forEach(id => {
+      const el = qs(`#${id}`); if (el) el.disabled = !canDebt || (routeReadOnly && isDebtMode);
     });
   }
 
@@ -351,8 +373,9 @@
   function renderDebts(data) {
     const items = (data && data.items || []).filter(d => Number(d.saldoPendiente || 0) > 0);
     const isDebtMode = state.returnTo === "deudores";
-    const canDebt = !!state.puedeCobrarDeudas;
-    const disabled = isDebtMode ? !canDebt : false;
+    const routeReadOnly = isViewingHistory() && !isDebtMode;
+    const canDebt = !!state.puedeCobrarDeudas && !routeReadOnly;
+    const disabled = !canDebt;
     const noDebtMsg = qs("#cobro-no-deudas");
     const debtBody = qs("#cobro-deuda-body");
     const debtStatus = qs("#debt-status-msg");
@@ -523,6 +546,9 @@
     if (!e) return;
     if (state.returnTo !== "deudores" && !r) return;
     const msg = qs("#save-msg"); msg.textContent = ""; msg.className = "msg";
+    if (isViewingHistory() && state.returnTo !== "deudores") {
+      msg.textContent = "Estás viendo una ruta anterior en solo lectura."; msg.classList.add("err"); return;
+    }
     if (routeIsFinalizada() && state.returnTo !== "deudores") {
       msg.textContent = "La ruta está finalizada. No se pueden modificar cobros de entregas."; msg.classList.add("err"); return;
     }
@@ -573,7 +599,7 @@
       } catch (err) {
         msg.textContent = err.message || String(err); msg.classList.add("err");
       } finally {
-        qs("#btn-save").disabled = (state.returnTo === "deudores") ? !state.puedeCobrarDeudas : (routeIsFinalizada());
+        qs("#btn-save").disabled = (state.returnTo === "deudores") ? (!state.puedeCobrarDeudas || isViewingHistory()) : (routeIsFinalizada() || isViewingHistory());
         showLoading(false);
       }
       return;
@@ -616,9 +642,60 @@
       msg.textContent = err.message || String(err); msg.classList.add("err");
       toast("Error al guardar", 3000);
     } finally {
-      qs("#btn-save").disabled = (state.returnTo === "deudores") ? !state.puedeCobrarDeudas : routeIsFinalizada();
+      qs("#btn-save").disabled = (state.returnTo === "deudores") ? (!state.puedeCobrarDeudas || isViewingHistory()) : (routeIsFinalizada() || isViewingHistory());
       showLoading(false);
     }
+  }
+
+  async function loadRouteHistory() {
+    if (!state.session) return;
+    const panel = qs("#history-panel");
+    const list = qs("#history-list");
+    panel.classList.remove("hidden");
+    list.innerHTML = `<span class="muted small">Cargando rutas...</span>`;
+    try {
+      const res = await API.listRoutes({ pin: state.session.pin, limit: 20 });
+      if (!res || !res.ok) throw new Error(res && res.error || "No se pudo cargar el historial de rutas.");
+      state.routeHistory = Array.isArray(res.rutas) ? res.rutas : [];
+      if (!state.routeHistory.length) { list.innerHTML = `<span class="muted small">No hay rutas anteriores.</span>`; return; }
+      list.innerHTML = state.routeHistory.map(r => {
+        const active = state.route && String(state.route.idRuta) === String(r.idRuta);
+        const estado = String(r.estado || "").toUpperCase();
+        return `<div class="history-item ${active ? "active" : ""}">
+          <div class="h-main">
+            <div class="h-title">${esc(r.fecha || "")} · ${esc(r.conductor || "")}</div>
+            <div class="h-sub">${esc(r.hoja || "")} · ${esc(estado || "SIN ESTADO")}</div>
+          </div>
+          <button class="btn ${active ? "btn-light":"btn-primary"}" data-hist="${esc(r.idRuta)}">${active ? "Viendo" : "Ver"}</button>
+        </div>`;
+      }).join("");
+      qsa("[data-hist]").forEach(btn => btn.addEventListener("click", () => openHistoricalRoute(btn.getAttribute("data-hist"))));
+    } catch (e) {
+      list.innerHTML = `<span class="msg err">${esc(e.message || String(e))}</span>`;
+    }
+  }
+
+  async function openHistoricalRoute(idRuta) {
+    if (!idRuta) return;
+    try {
+      showLoading(true);
+      const res = await API.getRouteById({ pin: state.session.pin, idRuta });
+      if (!res || !res.ok) throw new Error(res && res.error || "No se pudo cargar la ruta seleccionada.");
+      state.route = res.ruta || null;
+      state.entregas = Array.isArray(res.entregas) ? res.entregas : [];
+      if (res.deudasPorCliente) state.debtsByClient = { ...state.debtsByClient, ...res.deudasPorCliente };
+      state.viewingHistory = String(idRuta) !== String(state.activeRouteId || "");
+      renderRoute();
+      setView("route");
+      await loadRouteHistory(); // refresca estado "Viendo"
+    } catch (e) {
+      toast(e.message || String(e), 4000);
+    } finally { showLoading(false); }
+  }
+
+  async function backToActiveRoute() {
+    qs("#history-panel").classList.add("hidden");
+    if (isViewingHistory()) await loadRoute();
   }
 
   function bind() {
@@ -627,11 +704,14 @@
     qs("#btn-logout").addEventListener("click", logout);
     qs("#btn-refresh").addEventListener("click", () => {
       if (qs("#view-deudores") && !qs("#view-deudores").classList.contains("hidden")) loadDeudores();
-      else { loadRoute({ silent: !!state.route }); }
+      else if (isViewingHistory() && state.route) openHistoricalRoute(state.route.idRuta);
+      else loadRoute({ silent: !!state.route });
     });
     qs("#btn-deudores").addEventListener("click", loadDeudores);
     qs("#btn-back-deudores").addEventListener("click", () => setView("route"));
     qs("#btn-finalizar-ruta").addEventListener("click", finalizarRutaActual);
+    qs("#btn-history").addEventListener("click", loadRouteHistory);
+    qs("#btn-history-close").addEventListener("click", backToActiveRoute);
     qs("#search-deudores").addEventListener("input", renderDeudores);
     qs("#btn-back").addEventListener("click", () => setView(state.returnTo === "deudores" ? "deudores" : "route"));
     qs("#search").addEventListener("input", renderList);

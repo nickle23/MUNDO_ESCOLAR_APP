@@ -22,7 +22,7 @@
     const mode = (cfg().REQUEST_MODE || "auto").toLowerCase();
 
     // Prefer GET for simple actions or when forced, to reduce CORS/preflight issues in some deployments
-    const preferGet = method === "GET" || mode === "get" || (mode === "auto" && ["ping", "login", "getRouteToday", "getClientDebts", "listDeudores", "listRoutes"].includes(action));
+    const preferGet = method === "GET" || mode === "get" || (mode === "auto" && ["ping", "login", "getRouteToday", "getClientDebts", "listDeudores", "listRoutes", "getRouteById"].includes(action));
 
     if (preferGet) {
       const qs = toQuery({ action, ...payload });
@@ -58,6 +58,8 @@
     ping: () => request("ping", {}, "GET"),
     login: (pin) => request("login", { pin }),
     getRouteToday: (params) => request("getRouteToday", params),
+    listRoutes: (params) => request("listRoutes", params),
+    getRouteById: (params) => request("getRouteById", params),
     getClientDebts: (params) => request("getClientDebts", typeof params === "string" ? { idCliente: params } : (params || {})),
     saveEntrega: (data) => request("saveEntrega", data),
     finalizarRuta: (data) => request("finalizarRuta", data),

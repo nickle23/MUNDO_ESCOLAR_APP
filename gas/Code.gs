@@ -29,6 +29,12 @@ function handleRequest_(e) {
       case 'getRouteToday':
         result = getRouteToday(params);
         break;
+      case 'listRoutes':
+        result = listRoutes(params);
+        break;
+      case 'getRouteById':
+        result = getRouteById(params);
+        break;
       case 'getClientDebts':
         result = getClientDebts(params);
         break;

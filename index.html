@@ -51,7 +51,19 @@
         <div id="route-summary" class="summary full"></div>
         <div class="full" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btn-finalizar-ruta" class="btn btn-light">Finalizar ruta</button>
+          <button id="btn-history" class="btn btn-light">Rutas anteriores</button>
         </div>
+      </div>
+
+      <div id="history-panel" class="card hidden">
+        <div class="detail-head">
+          <div style="flex:1">
+            <h3 style="margin:0;">Rutas anteriores</h3>
+            <p class="muted small" style="margin:4px 0 0;">Solo consulta: selecciona una ruta para ver su resumen y estado de clientes.</p>
+          </div>
+          <button id="btn-history-close" class="btn-back">Cerrar</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
       </div>
 
       <div class="toolbar">

@@ -40,6 +40,13 @@ h1 { font-size: 22px; } h2 { font-size: 20px; } h3 { font-size: 16px; }
 .calc-row-input label { margin:0 0 4px; font-size:12px; }
 .calc-row-input input { padding:8px 10px; font-size:15px; }
 
+.history-list { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+.history-item { border:1px solid var(--border); border-radius:10px; padding:10px; background:#fff; display:flex; justify-content:space-between; gap:10px; align-items:center; }
+.history-item .h-main { min-width:0; }
+.history-item .h-title { font-weight:700; font-size:14px; }
+.history-item .h-sub { color:var(--muted); font-size:12px; margin-top:2px; }
+.history-item.active { border-color:#93c5fd; background:#eff6ff; }
+
 .debt-alert { margin-top: 8px; padding: 10px 12px; border-radius: 10px; font-weight: 700; font-size: 14px; }
 .debt-alert.ok { color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; }
 .debt-alert.err { color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; }
