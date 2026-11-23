@@ -53,6 +53,19 @@ function buildRoutePayload_(routeInfo, user) {
 
   var ids = Object.keys(clientIds);
   var deudasPorCliente = ids.length ? getDebtsForClients_(ids) : {};
+  var totales = { bultos: 0, monto: 0, efectivo: 0, yape: 0, transferencia: 0, cobroDeudaEfectivo: 0, cobroDeudaYape: 0, cobroDeudaTransferencia: 0 };
+  for (var j = 0; j < entregas.length; j++) {
+    var e = entregas[j];
+    totales.bultos = round2(totales.bultos + toNum(e.totB));
+    totales.monto = round2(totales.monto + toNum(e.montoCobrar));
+    totales.efectivo = round2(totales.efectivo + toNum(e.efectivo));
+    totales.yape = round2(totales.yape + toNum(e.yape));
+    totales.transferencia = round2(totales.transferencia + toNum(e.transferencia));
+    totales.cobroDeudaEfectivo = round2(totales.cobroDeudaEfectivo + toNum(e.cobroDeudaEfectivo));
+    totales.cobroDeudaYape = round2(totales.cobroDeudaYape + toNum(e.cobroDeudaYape));
+    totales.cobroDeudaTransferencia = round2(totales.cobroDeudaTransferencia + toNum(e.cobroDeudaTransferencia));
+  }
+  totales.recaudadoTotal = round2(totales.efectivo + totales.yape + totales.transferencia + totales.cobroDeudaEfectivo + totales.cobroDeudaYape + totales.cobroDeudaTransferencia);
   return {
     ok: true,
     usuario: user,
@@ -62,6 +75,7 @@ function buildRoutePayload_(routeInfo, user) {
     },
     entregas: entregas,
     deudasPorCliente: deudasPorCliente,
+    totales: totales,
   };
 }
 

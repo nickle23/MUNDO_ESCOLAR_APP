@@ -14,6 +14,7 @@
     routeHistory: [],
     viewingHistory: false,
     activeRouteId: null,
+    routeTotals: null,
   };
 
   function setView(name) {
@@ -32,6 +33,7 @@
     return !!state.viewingHistory && !!state.route && !!state.activeRouteId && String(state.route.idRuta) !== String(state.activeRouteId);
   }
 
+  const ROUTE_CACHE_KEY = "me_route_cache";
   function saveSession() {
     if (state.session) localStorage.setItem("me_session", JSON.stringify(state.session));
     else localStorage.removeItem("me_session");
@@ -39,6 +41,17 @@
   function loadSession() {
     try { state.session = JSON.parse(localStorage.getItem("me_session") || "null"); } catch { state.session = null; }
     state.puedeCobrarDeudas = !!(state.session && state.session.usuario && state.session.usuario.puedeCobrarDeudas);
+  }
+  function saveRouteCache(res) {
+    try { sessionStorage.setItem(ROUTE_CACHE_KEY, JSON.stringify({ ts: Date.now(), res })); } catch(e) {}
+  }
+  function loadRouteCache() {
+    try {
+      const c = JSON.parse(sessionStorage.getItem(ROUTE_CACHE_KEY) || "null");
+      if (!c || !c.res) return null;
+      if (Date.now() - (c.ts || 0) > 10 * 60 * 1000) return null; // 10 min
+      return c.res;
+    } catch(e) { return null; }
   }
 
   async function handleLogin() {
@@ -61,51 +74,88 @@
   }
 
   function logout() {
-    state.session = null; state.route = null; state.entregas = []; state.current = null; state.debtsByClient = {}; state.deudores = []; state.puedeCobrarDeudas = false; state.returnTo = "route"; state.routeHistory = []; state.viewingHistory = false; state.activeRouteId = null;
+    state.session = null; state.route = null; state.entregas = []; state.current = null; state.debtsByClient = {}; state.deudores = []; state.puedeCobrarDeudas = false; state.returnTo = "route"; state.routeHistory = []; state.viewingHistory = false; state.activeRouteId = null; state.routeTotals = null;
     try { saveSession(); } catch (e) {}
     const pin = qs("#pin"); if (pin) pin.value = "";
     const hist = qs("#history-panel"); if (hist) hist.classList.add("hidden");
     const search = qs("#search"); if (search) search.value = "";
+    const totals = qs("#route-totals"); if (totals) { totals.classList.add("hidden"); totals.innerHTML = ""; }
     qs("#subtitle").textContent = "Rutas y Cobranza";
     setView("login");
+  }
+
+  function applyRouteResponse(res, { silent } = {}) {
+    state.route = res.ruta || null;
+    state.entregas = Array.isArray(res.entregas) ? res.entregas : [];
+    state.routeTotals = res.totales || null;
+    if (res.deudasPorCliente) state.debtsByClient = { ...state.debtsByClient, ...res.deudasPorCliente };
+    state.activeRouteId = state.route ? state.route.idRuta : null;
+    state.viewingHistory = false;
+    renderRoute();
+    setView("route");
+    if (silent) toast("Ruta actualizada");
   }
 
   async function loadRoute(opts = {}) {
     if (!state.session) return setView("login");
     const silent = !!opts.silent;
+    const fecha = (window.APP_CONFIG.DEFAULT_DATE === "today" || !window.APP_CONFIG.DEFAULT_DATE) ? todayISO() : window.APP_CONFIG.DEFAULT_DATE;
+
+    // Carga rápida: muestra cache de sesión mientras llega la red
+    if (!silent) {
+      const cached = loadRouteCache();
+      if (cached && cached.ok) {
+        applyRouteResponse(cached, {});
+        showLoading(false); // ocultar spinner, refrescar en segundo plano
+      } else {
+        showLoading(true);
+      }
+    } else {
+      qs("#subtitle").textContent = "Actualizando...";
+    }
+
     try {
-      if (!silent) showLoading(true);
-      else { qs("#subtitle").textContent = "Actualizando..."; }
-      const fecha = (window.APP_CONFIG.DEFAULT_DATE === "today" || !window.APP_CONFIG.DEFAULT_DATE) ? todayISO() : window.APP_CONFIG.DEFAULT_DATE;
       const res = await API.getRouteToday({ pin: state.session.pin, fecha });
       if (!res || !res.ok) throw new Error(res && res.error || "No se pudo cargar la ruta.");
-      state.route = res.ruta || null;
-      state.entregas = Array.isArray(res.entregas) ? res.entregas : [];
-      if (res.deudasPorCliente) state.debtsByClient = { ...state.debtsByClient, ...res.deudasPorCliente };
-      state.activeRouteId = state.route ? state.route.idRuta : null;
-      state.viewingHistory = false;
-      renderRoute();
-      setView("route");
-      prefetchDebtsForRoute();
-      if (silent) toast("Ruta actualizada");
+      saveRouteCache(res);
+      applyRouteResponse(res, { silent });
     } catch (e) {
-      toast(e.message || String(e), 4000);
-      state.route = state.route || null; state.entregas = [];
-      state.viewingHistory = false;
-      renderRoute();
-      setView("route");
+      if (!state.route) {
+        toast(e.message || String(e), 4000);
+        state.route = null; state.entregas = []; state.routeTotals = null;
+        state.viewingHistory = false;
+        renderRoute();
+        setView("route");
+      } else {
+        toast("Sin conexión: mostrando últimos datos", 2500);
+      }
     } finally {
-      if (!silent) showLoading(false);
+      showLoading(false);
     }
   }
 
   function getRouteTotals() {
-    const t = { ef:0, ya:0, tr:0, cobroEf:0, cobroYa:0, cobroTr:0 };
+    const st = state.routeTotals || {};
+    if (state.routeTotals) {
+      const ef = num(st.efectivo), ya = num(st.yape), tr = num(st.transferencia);
+      const cobroEf = num(st.cobroDeudaEfectivo), cobroYa = num(st.cobroDeudaYape), cobroTr = num(st.cobroDeudaTransferencia);
+      return {
+        bultos: roundMoney(num(st.bultos)), monto: roundMoney(num(st.monto)),
+        ef: roundMoney(ef), ya: roundMoney(ya), tr: roundMoney(tr),
+        cobroEf: roundMoney(cobroEf), cobroYa: roundMoney(cobroYa), cobroTr: roundMoney(cobroTr),
+        entregasTotal: roundMoney(ef+ya+tr), cobroTotal: roundMoney(cobroEf+cobroYa+cobroTr),
+        totalEf: roundMoney(ef+cobroEf), totalYa: roundMoney(ya+cobroYa), totalTr: roundMoney(tr+cobroTr),
+        general: roundMoney(num(st.recaudadoTotal) || (ef+ya+tr+cobroEf+cobroYa+cobroTr))
+      };
+    }
+    const t = { ef:0, ya:0, tr:0, cobroEf:0, cobroYa:0, cobroTr:0, bultos:0, monto:0 };
     state.entregas.forEach(e => {
+      t.bultos += num(e.totB); t.monto += num(e.montoCobrar != null ? e.montoCobrar : e.totMont);
       t.ef += num(e.efectivo); t.ya += num(e.yape); t.tr += num(e.transferencia);
       t.cobroEf += num(e.cobroDeudaEfectivo); t.cobroYa += num(e.cobroDeudaYape); t.cobroTr += num(e.cobroDeudaTransferencia);
     });
     const r = (v) => roundMoney(v);
+    t.bultos=r(t.bultos); t.monto=r(t.monto);
     t.ef=r(t.ef); t.ya=r(t.ya); t.tr=r(t.tr);
     t.cobroEf=r(t.cobroEf); t.cobroYa=r(t.cobroYa); t.cobroTr=r(t.cobroTr);
     t.entregasTotal = r(t.ef+t.ya+t.tr);
@@ -126,6 +176,7 @@
     box.innerHTML = `
       <div class="totals-title">${viewing ? "Resumen de lo recaudado (ruta anterior)" : (finalizada ? "Total recaudado (ruta finalizada)" : "Recaudado hasta ahora")}</div>
       <div class="totals-grid">
+        <div class="totals-cell"><span class="k">Bultos totales</span><strong>${esc(roundMoney(t.bultos))}</strong></div>
         <div class="totals-cell"><span class="k">Efectivo</span><strong>${money(t.totalEf)}</strong></div>
         <div class="totals-cell"><span class="k">Yape</span><strong>${money(t.totalYa)}</strong></div>
         <div class="totals-cell"><span class="k">Transferencia</span><strong>${money(t.totalTr)}</strong></div>
@@ -191,6 +242,7 @@
       const monto = e.montoCobrar != null ? e.montoCobrar : e.totMont;
       const pagado = e.totalPagadoHoy != null ? e.totalPagadoHoy : 0;
       const saldoCliente = (state.debtsByClient[e.idCliente] && state.debtsByClient[e.idCliente].saldoTotal) || e.saldoPendienteCliente || 0;
+      const bultos = e.totB != null && e.totB !== "" ? roundMoney(num(e.totB)) : null;
       return `<div class="item" data-id="${esc(e.idEntrega || e.row)}">
         <div class="item-head">
           <div>
@@ -201,6 +253,7 @@
         </div>
         <div class="item-meta">
           <div><span class="label">Cobrar:</span> <strong>${money(monto)}</strong></div>
+          ${bultos !== null ? `<div><span class="label">Bultos:</span> <strong>${esc(bultos)}</strong></div>` : ""}
           <div><span class="label">Pagado hoy:</span> <strong>${money(pagado)}</strong></div>
           ${saldoCliente > 0 ? `<div><span class="label">Deuda cliente:</span> <strong>${money(saldoCliente)}</strong></div>` : ""}
         </div>
@@ -226,6 +279,7 @@
     qs("#obs-card").classList.toggle("hidden", isDebtMode);
     qs("#debts-card").classList.toggle("hidden", isDebtMode);
     qs("#detail-monto-wrap").classList.toggle("hidden", isDebtMode);
+    qs("#detail-bultos-wrap").classList.toggle("hidden", isDebtMode);
     qs("#detail-estado-wrap").classList.toggle("hidden", isDebtMode);
 
     qs("#cobro-deuda-card").classList.remove("hidden");
@@ -257,6 +311,10 @@
     qs("#detail-meta").textContent = `${e.direccion || ""}${e.vend ? " · Vend: " + e.vend : ""} · ID Cliente: ${e.idCliente || "-"}`;
     const monto = e.montoCobrar != null ? e.montoCobrar : e.totMont;
     qs("#detail-monto").textContent = money(monto);
+    const bultosWrap = qs("#detail-bultos-wrap");
+    if (bultosWrap) bultosWrap.classList.toggle("hidden", state.returnTo === "deudores");
+    const bultosEl = qs("#detail-bultos");
+    if (bultosEl) bultosEl.textContent = (e.totB != null && e.totB !== "") ? String(roundMoney(num(e.totB))) : "-";
     qs("#detail-estado").innerHTML = badgeEstado(e.estadoEntrega || "PENDIENTE");
 
     qs("#p-efectivo").value = e.efectivo != null ? e.efectivo : "";
@@ -332,17 +390,7 @@
     qsa("[data-deudor]").forEach(btn => btn.addEventListener("click", () => openDeudor(btn.getAttribute("data-deudor"))));
   }
 
-  function prefetchDebtsForRoute() {
-    const ids = [...new Set(state.entregas.map(e => e.idCliente).filter(Boolean))].filter(id => !state.debtsByClient[id]);
-    ids.slice(0, 8).forEach(id => {
-      API.getClientDebts({ pin: state.session.pin, idCliente: id }).then(res => {
-        if (res && res.ok) {
-          state.debtsByClient[id] = { saldoTotal: res.saldoTotal || 0, items: res.deudas || [] };
-          if (state.current && state.current.idCliente === id) renderDebts(state.debtsByClient[id]);
-        }
-      }).catch(() => {});
-    });
-  }
+  // Deudas se precargan en getRouteToday (deudasPorCliente); no se hace prefetch extra por cliente.
 
   async function openDeudor(idCliente) {
     const d = state.deudores.find(x => String(x.idCliente) === String(idCliente));
@@ -370,16 +418,17 @@
       qs("#cobro-deudas-list").textContent = "Sin deudas pendientes.";
       return;
     }
+    let data = state.debtsByClient[e.idCliente];
+    if (data && data.items) {
+      renderDebts(data); // muestra cache inmediato, sin spinner
+      return;
+    }
     qs("#debts-list").textContent = "Cargando...";
     qs("#cobro-deudas-list").textContent = "Cargando...";
     try {
-      let data = state.debtsByClient[e.idCliente];
-      if (!data || !data.items) {
-        const res = await API.getClientDebts({ pin: state.session.pin, idCliente: e.idCliente });
-        if (res && res.ok) data = { saldoTotal: res.saldoTotal || 0, items: res.deudas || [] };
-        else data = { saldoTotal: 0, items: [] };
-        state.debtsByClient[e.idCliente] = data;
-      }
+      const res = await API.getClientDebts({ pin: state.session.pin, idCliente: e.idCliente });
+      data = (res && res.ok) ? { saldoTotal: res.saldoTotal || 0, items: res.deudas || [] } : { saldoTotal: 0, items: [] };
+      state.debtsByClient[e.idCliente] = data;
       renderDebts(data);
     } catch (err) {
       qs("#debts-list").textContent = "No se pudieron cargar las deudas.";
@@ -439,7 +488,7 @@
       }
       qs("#debts-list").innerHTML = `<span class="muted">No hay deudas anteriores registradas.</span>`;
       qs("#cobro-deudas-list").innerHTML = `<span class="muted">Sin deudas pendientes.</span>`;
-      ["cd-efectivo","cd-yape","cd-transferencia"].forEach(id => { const el = qs("#"+id); if (el) el.value = ""; });
+      ["cd-efectivo","cd-yape","cd-transferencia","cd-recibido"].forEach(id => { const el = qs("#"+id); if (el) el.value = ""; });
       qs("#calc-cobro-deuda").textContent = money(0);
       if (noDebtMsg) { noDebtMsg.classList.toggle("hidden", isDebtMode); noDebtMsg.textContent = "CLIENTE NO REGISTRA DEUDAS PENDIENTES"; }
       if (debtBody) debtBody.classList.toggle("hidden", !isDebtMode);
@@ -734,11 +783,12 @@
       if (!res || !res.ok) throw new Error(res && res.error || "No se pudo cargar la ruta seleccionada.");
       state.route = res.ruta || null;
       state.entregas = Array.isArray(res.entregas) ? res.entregas : [];
+      state.routeTotals = res.totales || null;
       if (res.deudasPorCliente) state.debtsByClient = { ...state.debtsByClient, ...res.deudasPorCliente };
       state.viewingHistory = String(idRuta) !== String(state.activeRouteId || "");
       renderRoute();
       setView("route");
-      await loadRouteHistory(); // refresca estado "Viendo"
+      loadRouteHistory(); // refresca estado "Viendo" sin bloquear
     } catch (e) {
       toast(e.message || String(e), 4000);
     } finally { showLoading(false); }
