@@ -134,6 +134,11 @@
     }
   }
 
+  function isNoEntregaEstado(est) {
+    const e = String(est || "").toUpperCase();
+    return e === "REPROGRAMADO" || e === "RECHAZADO";
+  }
+
   function getRouteTotals() {
     const st = state.routeTotals || {};
     if (state.routeTotals) {
@@ -211,12 +216,16 @@
     const total = state.entregas.length;
     const pagados = state.entregas.filter(e => ["PAGADO","ENTREGADO"].includes((e.estadoEntrega||"").toUpperCase())).length;
     const creditos = state.entregas.filter(e => ["CREDITO","PARCIAL"].includes((e.estadoEntrega||"").toUpperCase())).length;
-    const pendientes = total - pagados - creditos;
+    const reprogramados = state.entregas.filter(e => String(e.estadoEntrega||"").toUpperCase() === "REPROGRAMADO").length;
+    const rechazados = state.entregas.filter(e => String(e.estadoEntrega||"").toUpperCase() === "RECHAZADO").length;
+    const pendientes = Math.max(0, total - pagados - creditos - reprogramados - rechazados);
     qs("#route-summary").innerHTML = `
       <span class="pill">Entregas: ${total}</span>
       <span class="pill">Pagadas: ${pagados}</span>
       <span class="pill">Crédito/Parcial: ${creditos}</span>
-      <span class="pill">Pendientes: ${pendientes < 0 ? 0 : pendientes}</span>`;
+      <span class="pill">Reprogramadas: ${reprogramados}</span>
+      <span class="pill">Rechazadas: ${rechazados}</span>
+      <span class="pill">Pendientes: ${pendientes}</span>`;
 
     renderRouteTotals();
     renderList();
@@ -273,9 +282,11 @@
     const routeReadOnly = isViewingHistory() && !isDebtMode;
     const locked = (routeIsFinalizada() || routeReadOnly) && !isDebtMode;
     const canDebt = !!state.puedeCobrarDeudas && !routeReadOnly;
+    const est = String(qs("#estado-entrega")?.value || "PENDIENTE").toUpperCase();
+    const noEntrega = isNoEntregaEstado(est);
 
     qs("#pago-card").classList.toggle("hidden", isDebtMode);
-    qs("#credito-card").classList.toggle("hidden", isDebtMode);
+    qs("#credito-card").classList.toggle("hidden", isDebtMode || noEntrega);
     qs("#obs-card").classList.toggle("hidden", isDebtMode);
     qs("#debts-card").classList.toggle("hidden", isDebtMode);
     qs("#detail-monto-wrap").classList.toggle("hidden", isDebtMode);
@@ -294,7 +305,11 @@
     qs("#cobro-no-deudas").classList.add("hidden");
     qs("#cobro-deuda-body").classList.remove("hidden");
 
-    ["p-efectivo","p-yape","p-transferencia","p-recibido","genera-deuda","vence-deuda","estado-entrega","observacion"].forEach(id => {
+    const payDisabled = (!isDebtMode && locked) || (!isDebtMode && noEntrega);
+    ["p-efectivo","p-yape","p-transferencia","p-recibido","genera-deuda","vence-deuda"].forEach(id => {
+      const el = qs(`#${id}`); if (el) el.disabled = payDisabled;
+    });
+    ["estado-entrega","observacion"].forEach(id => {
       const el = qs(`#${id}`); if (el) el.disabled = !isDebtMode && locked;
     });
     ["cd-efectivo","cd-yape","cd-transferencia","cd-recibido"].forEach(id => {
@@ -320,6 +335,7 @@
     qs("#p-efectivo").value = e.efectivo != null ? e.efectivo : "";
     qs("#p-yape").value = e.yape != null ? e.yape : "";
     qs("#p-transferencia").value = e.transferencia != null ? e.transferencia : "";
+    qs("#p-recibido").value = "";
     qs("#observacion").value = e.observacion || "";
     qs("#estado-entrega").value = (e.estadoEntrega || "PENDIENTE").toUpperCase();
     qs("#vence-deuda").value = e.venceDeuda || "";
@@ -327,6 +343,7 @@
     qs("#cd-efectivo").value = e.cobroDeudaEfectivo || "";
     qs("#cd-yape").value = e.cobroDeudaYape || "";
     qs("#cd-transferencia").value = e.cobroDeudaTransferencia || "";
+    qs("#cd-recibido").value = "";
     qs("#save-msg").textContent = ""; qs("#save-msg").className = "msg";
 
     applyDetailMode();
@@ -546,13 +563,19 @@
 
   function updateCalcs() {
     const e = state.current || {};
+    const est = String(qs("#estado-entrega")?.value || "PENDIENTE").toUpperCase();
+    const noEntrega = isNoEntregaEstado(est);
+    if (noEntrega) {
+      ["p-efectivo","p-yape","p-transferencia","p-recibido"].forEach(id => { const el = qs(`#${id}`); if (el) el.value = ""; });
+      const gd = qs("#genera-deuda"); if (gd) gd.checked = false;
+      const vd = qs("#vence-deuda"); if (vd) vd.value = "";
+    }
     const monto = roundMoney(num(e.montoCobrar != null ? e.montoCobrar : e.totMont));
     const ef = num(qs("#p-efectivo").value);
     const ya = num(qs("#p-yape").value);
     const tr = num(qs("#p-transferencia").value);
     const total = roundMoney(ef + ya + tr);
-    const saldo = Math.max(0, roundMoney(monto - total));
-    const cambio = Math.max(0, roundMoney(total - monto));
+    const saldo = noEntrega ? 0 : Math.max(0, roundMoney(monto - total));
 
     const calcMonto = qs("#calc-monto");
     if (calcMonto) calcMonto.textContent = money(monto);
@@ -578,8 +601,8 @@
       }
     }
 
-    qs("#credito-fields").classList.toggle("hidden", !(qs("#genera-deuda").checked && saldo > 0));
-    if (saldo <= 0) qs("#genera-deuda").checked = false;
+    qs("#credito-fields").classList.toggle("hidden", !(qs("#genera-deuda").checked && saldo > 0 && !noEntrega));
+    if (saldo <= 0 || noEntrega) { const gd = qs("#genera-deuda"); if (gd) gd.checked = false; }
 
     const cdEf = num(qs("#cd-efectivo").value);
     const cdYa = num(qs("#cd-yape").value);
@@ -652,12 +675,20 @@
     if (routeIsFinalizada() && state.returnTo !== "deudores") {
       msg.textContent = "La ruta está finalizada. No se pueden modificar cobros de entregas."; msg.classList.add("err"); return;
     }
+    const estadoEntrega = String(qs("#estado-entrega").value || "PENDIENTE").toUpperCase();
+    const noEntrega = isNoEntregaEstado(estadoEntrega);
     const monto = num(e.montoCobrar != null ? e.montoCobrar : e.totMont);
-    const pago = { efectivo: num(qs("#p-efectivo").value), yape: num(qs("#p-yape").value), transferencia: num(qs("#p-transferencia").value) };
+    const pago = noEntrega
+      ? { efectivo: 0, yape: 0, transferencia: 0 }
+      : { efectivo: num(qs("#p-efectivo").value), yape: num(qs("#p-yape").value), transferencia: num(qs("#p-transferencia").value) };
     const totalPagado = +(pago.efectivo + pago.yape + pago.transferencia).toFixed(2);
-    const saldo = Math.max(0, +(monto - totalPagado).toFixed(2));
-    const generaDeuda = qs("#genera-deuda").checked && saldo > 0;
+    const saldo = noEntrega ? 0 : Math.max(0, +(monto - totalPagado).toFixed(2));
+    const generaDeuda = !noEntrega && qs("#genera-deuda").checked && saldo > 0;
     const vence = qs("#vence-deuda").value;
+    if (noEntrega && !String(qs("#observacion").value || "").trim()) {
+      msg.textContent = estadoEntrega === "REPROGRAMADO" ? "Indica el motivo/fecha acordada para reprogramar." : "Indica el motivo por el que el cliente rechazó el pedido.";
+      msg.classList.add("err"); return;
+    }
     if (generaDeuda && !vence) { msg.textContent = "Selecciona la fecha de vencimiento para la deuda."; msg.classList.add("err"); return; }
 
     // cobro deudas: toma montos ingresados (no depende solo del checkbox)
@@ -723,7 +754,7 @@
       deudaNueva: generaDeuda ? { monto: saldo, vencimiento: vence } : null,
       cobroDeudas: seleccion,
       cobroDeudasMetodos: cobroMet,
-      estadoEntrega: qs("#estado-entrega").value,
+      estadoEntrega: estadoEntrega,
       observacion: qs("#observacion").value || ""
     };
 
@@ -816,6 +847,12 @@
     qs("#search-deudores").addEventListener("input", renderDeudores);
     qs("#btn-back").addEventListener("click", () => setView(state.returnTo === "deudores" ? "deudores" : "route"));
     qs("#search").addEventListener("input", renderList);
+    const estEl = qs("#estado-entrega");
+    if (estEl) estEl.addEventListener("change", () => {
+      const v = String(estEl.value || "PENDIENTE").toUpperCase();
+      const de = qs("#detail-estado"); if (de) de.innerHTML = badgeEstado(v);
+      applyDetailMode(); updateCalcs();
+    });
     ["p-efectivo","p-yape","p-transferencia","p-recibido","genera-deuda","cd-efectivo","cd-yape","cd-transferencia","cd-recibido"].forEach(id => {
       const el = qs(`#${id}`);
       if (!el) return;

@@ -123,6 +123,8 @@ textarea { resize: vertical; }
 .st-PARCIAL { background: #fef3c7; color: #92400e; }
 .st-CREDITO { background: #fee2e2; color: #991b1b; }
 .st-NO_ENTREGADO { background: #f3f4f6; color: #6b7280; }
+.st-REPROGRAMADO { background: #e0e7ff; color: #3730a3; }
+.st-RECHAZADO { background: #ffe4e6; color: #9f1239; }
 .item-actions { margin-top: 10px; display: flex; gap: 8px; }
 
 .meta { color: var(--muted); font-size: 14px; margin-top: 4px; }

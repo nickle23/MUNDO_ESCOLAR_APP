@@ -24,7 +24,8 @@
   }
   function badgeEstado(estado) {
     const e = (estado || "PENDIENTE").toUpperCase();
-    return `<span class="badge st-${esc(e)}">${esc(e)}</span>`;
+    const labels = { REPROGRAMADO: "REPROGRAMADO", RECHAZADO: "RECHAZÓ PEDIDO", NO_ENTREGADO: "NO ENTREGADO" };
+    return `<span class="badge st-${esc(e)}">${esc(labels[e] || e)}</span>`;
   }
 
   function todayISO() {

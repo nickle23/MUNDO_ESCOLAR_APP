@@ -177,7 +177,7 @@ Estas columnas permiten pagos mixtos, crédito con vencimiento, cobro de deudas 
 | Y | `COBRO_DEUDA_YAPE` | Desglose cobro deuda anterior - Yape |
 | Z | `COBRO_DEUDA_TRANSFERENCIA` | Desglose cobro deuda anterior - transferencia |
 | AA | `DETALLE_COBRO_DEUDA` | IDs/montos de deudas abonadas (texto o JSON) |
-| AB | `ESTADO_ENTREGA` | `PENDIENTE` / `ENTREGADO` / `PAGADO` / `PARCIAL` / `CREDITO` / `NO_ENTREGADO` |
+| AB | `ESTADO_ENTREGA` | `PENDIENTE` / `ENTREGADO` / `PAGADO` / `PARCIAL` / `CREDITO` / `NO_ENTREGADO` / `REPROGRAMADO` / `RECHAZADO` |
 | AC | `ULTIMA_EDICION` | Timestamp de última modificación por app/usuario |
 | AD | `EDITADO_POR` | Usuario que editó |
 | AE | `ID_DEUDA_GENERADA` | ID de la deuda creada en Maestro (si aplica) |

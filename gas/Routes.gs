@@ -286,14 +286,19 @@ function saveEntrega(payload) {
   if (montoCobrar === 0) montoCobrar = toNum(sh.getRange(targetRow, c.MONTO_COBRAR).getValue());
   sh.getRange(targetRow, c.MONTO_COBRAR).setValue(montoCobrar);
 
-  var pago = payload.pagoHoy || {};
-  var efectivo = round2(toNum(pago.efectivo));
-  var yape = round2(toNum(pago.yape));
-  var transferencia = round2(toNum(pago.transferencia));
-  var totalPagadoHoy = round2(efectivo + yape + transferencia);
-  var saldoEntrega = round2(Math.max(0, montoCobrar - totalPagadoHoy));
+  var estadoEntrada = normalizeName(payload.estadoEntrega);
+  var esNoEntrega = (estadoEntrada === 'REPROGRAMADO' || estadoEntrada === 'RECHAZADO');
+  var obsIn = String(payload.observacion || '').trim();
+  if (esNoEntrega && !obsIn) throw new Error(estadoEntrada === 'REPROGRAMADO' ? 'Indica motivo/fecha acordada para reprogramar.' : 'Indica el motivo por el que el cliente rechazó el pedido.');
 
-  var generaDeuda = !!payload.generaDeuda && saldoEntrega > 0.009;
+  var pago = payload.pagoHoy || {};
+  var efectivo = esNoEntrega ? 0 : round2(toNum(pago.efectivo));
+  var yape = esNoEntrega ? 0 : round2(toNum(pago.yape));
+  var transferencia = esNoEntrega ? 0 : round2(toNum(pago.transferencia));
+  var totalPagadoHoy = round2(efectivo + yape + transferencia);
+  var saldoEntrega = esNoEntrega ? 0 : round2(Math.max(0, montoCobrar - totalPagadoHoy));
+
+  var generaDeuda = !esNoEntrega && !!payload.generaDeuda && saldoEntrega > 0.009;
   var deudaNueva = payload.deudaNueva || {};
   var vencimientoNuevo = generaDeuda ? toDateStr(deudaNueva.vencimiento) : '';
   var montoDeudaNueva = generaDeuda ? saldoEntrega : 0;
@@ -357,8 +362,10 @@ function saveEntrega(payload) {
   }
 
   // Update route sheet row
-  var estadoEntrega = String(payload.estadoEntrega || '').toUpperCase();
-  if (!estadoEntrega || estadoEntrega === 'PENDIENTE') {
+  var estadoEntrega = normalizeName(payload.estadoEntrega);
+  if (esNoEntrega) {
+    estadoEntrega = estadoEntrada; // REPROGRAMADO o RECHAZADO
+  } else if (!estadoEntrega || estadoEntrega === 'PENDIENTE') {
     if (saldoEntrega <= 0.009 && montoCobrar > 0) estadoEntrega = 'PAGADO';
     else if (generaDeuda) estadoEntrega = 'CREDITO';
     else if (totalPagadoHoy > 0) estadoEntrega = 'PARCIAL';
@@ -377,7 +384,7 @@ function saveEntrega(payload) {
   sh.getRange(targetRow, c.SALDO_ENTREGA_HOY).setValue(saldoEntrega);
   sh.getRange(targetRow, c.DEUDA_GENERADA_HOY).setValue(montoDeudaNueva);
   if (vencimientoNuevo) sh.getRange(targetRow, c.VENCE_DEUDA).setValue(new Date(vencimientoNuevo + 'T00:00:00'));
-  else if (!generaDeuda) sh.getRange(targetRow, c.VENCE_DEUDA).setValue('');
+  else sh.getRange(targetRow, c.VENCE_DEUDA).setValue('');
   sh.getRange(targetRow, c.COBRO_DEUDA_ANTERIOR).setValue(totalCobroSel);
   sh.getRange(targetRow, c.COBRO_DEUDA_EFECTIVO).setValue(cobroEf);
   sh.getRange(targetRow, c.COBRO_DEUDA_YAPE).setValue(cobroYa);
